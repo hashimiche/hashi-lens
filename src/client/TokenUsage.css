@@ -12,6 +12,87 @@
     font-size: 0.875rem;
 }
 
+.token-chip {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    white-space: nowrap;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.28rem 0.5rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    cursor: default;
+    font-size: 0.69rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    min-height: 31px;
+}
+
+.token-chip-icon {
+    font-size: 0.72rem;
+}
+
+.token-chip-label {
+    color: var(--text-secondary);
+}
+
+.token-chip-percent {
+    font-family: var(--mono-font);
+    color: var(--text);
+}
+
+.token-chip-track {
+    height: 3px;
+    width: 34px;
+    border-radius: 999px;
+    background: var(--bg-tertiary);
+    overflow: hidden;
+}
+
+.token-chip-fill {
+    height: 100%;
+}
+
+.token-chip-fill.safe {
+    background: linear-gradient(90deg, var(--primary), var(--primary-light));
+}
+
+.token-chip-fill.warning {
+    background: linear-gradient(90deg, var(--warning), #fbbf24);
+}
+
+.token-chip-fill.critical {
+    background: linear-gradient(90deg, var(--error), #f87171);
+}
+
+.token-chip-popover {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    min-width: 220px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    box-shadow: var(--shadow-md);
+    padding: 0.5rem 0.65rem;
+    font-size: 0.68rem;
+    line-height: 1.4;
+    color: var(--text-secondary);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-4px);
+    transition: opacity 0.16s ease, transform 0.16s ease;
+    z-index: 20;
+}
+
+.token-chip:hover .token-chip-popover {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+}
+
 .token-usage-header {
     display: flex;
     justify-content: space-between;

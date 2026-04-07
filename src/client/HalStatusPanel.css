@@ -1,0 +1,133 @@
+.hal-status-panel {
+    margin: 0.75rem 0.5rem 0.5rem;
+    padding: 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+}
+
+.hal-status-header h3 {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.hal-status-subtitle {
+    display: block;
+    margin-top: 0.2rem;
+    font-size: 0.72rem;
+    color: var(--text-tertiary);
+}
+
+.hal-status-products {
+    margin-top: 0.65rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+}
+
+.hal-product-card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    overflow: hidden;
+}
+
+.hal-product-card.running {
+    border-left: 3px solid #10b981;
+}
+
+.hal-product-header {
+    width: 100%;
+    border: none;
+    background: transparent;
+    color: inherit;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.55rem 0.6rem;
+    cursor: pointer;
+    text-align: left;
+}
+
+.hal-product-left {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+.hal-product-name {
+    font-size: 0.82rem;
+    font-weight: 600;
+}
+
+.hal-product-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+.hal-product-state {
+    font-size: 0.68rem;
+    color: var(--text-secondary);
+}
+
+.hal-expand-indicator {
+    font-size: 0.82rem;
+    color: var(--text-tertiary);
+}
+
+.hal-product-summary {
+    padding: 0 0.6rem 0.55rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    font-size: 0.68rem;
+    color: var(--text-tertiary);
+    font-family: var(--mono-font);
+}
+
+.hal-feature-list {
+    border-top: 1px dashed var(--border-light);
+    margin: 0 0.6rem 0.6rem;
+    padding-top: 0.4rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.hal-feature-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.4rem;
+    font-size: 0.7rem;
+}
+
+.hal-feature-main {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--text-secondary);
+}
+
+.hal-feature-details {
+    color: var(--text-tertiary);
+    text-align: right;
+}
+
+.hal-status-error {
+    margin-top: 0.6rem;
+    padding: 0.5rem 0.6rem;
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    font-size: 0.72rem;
+}
+
+.hal-dot {
+    font-size: 0.78rem;
+    line-height: 1;
+}

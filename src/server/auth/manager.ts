@@ -41,12 +41,46 @@ export class VaultAuthManager {
         // Initialize memory-only token cache
         this.tokenCache = new TokenCache()
 
+        const envVaultAddr = process.env.VAULT_ADDR || ''
+        const envVaultToken = process.env.VAULT_TOKEN || undefined
+        const envSkipVerify = (process.env.VAULT_SKIP_VERIFY || '').toLowerCase() === 'true'
+
         // Set initial cluster (must be configured via UI)
         this.currentCluster = {
-            vaultAddr: '',
+            vaultAddr: envVaultAddr,
             oidcMount: 'oidc',
-            oidcRole: 'default'
+            oidcRole: 'default',
+            skipVerify: envSkipVerify,
+            token: envVaultToken,
         }
+
+        if (envVaultAddr) {
+            console.log(`[Auth] Bootstrapped Vault address from environment: ${envVaultAddr}`)
+        }
+        if (envVaultToken) {
+            console.log('[Auth] Bootstrapped Vault token from environment')
+            this.currentToken = envVaultToken
+        }
+    }
+
+    /**
+     * Return best-effort token for CLI context without triggering authentication.
+     * Order: in-memory token -> explicit token-auth value -> cached token.
+     */
+    async getTokenForCliContext(): Promise<string | null> {
+        if (this.currentToken) {
+            return this.currentToken
+        }
+
+        if (this.currentCluster.token) {
+            return this.currentCluster.token
+        }
+
+        if (!this.currentCluster.vaultAddr) {
+            return null
+        }
+
+        return await this.tokenCache.getToken(this.currentCluster.vaultAddr)
     }
 
     /**
@@ -372,6 +406,10 @@ export class VaultAuthManager {
         replicationPerfMode: string | null
         replicationDrMode: string | null
     } | null> {
+        if (!this.currentCluster.vaultAddr) {
+            return null
+        }
+
         try {
             const httpsAgent = this.currentCluster.skipVerify
                 ? new https.Agent({ rejectUnauthorized: false })

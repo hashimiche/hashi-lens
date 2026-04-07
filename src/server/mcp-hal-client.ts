@@ -1,23 +1,18 @@
 /**
- * MCP Audit Client
+ * MCP HAL Client
  *
- * Communicates with Vault Audit MCP Server via stdio transport
- * Uses the official MCP SDK for idiomatic protocol handling
+ * Communicates with HAL MCP server via stdio transport.
  */
 
 import { spawn, ChildProcess } from 'child_process'
 
-export interface AuditToolResult {
+export interface HalToolResult {
     success: boolean
     result?: unknown
     error?: string
 }
 
-/**
- * MCP Client for Vault Audit Server
- * Communicates via stdio protocol
- */
-export class MCPAuditClient {
+export class MCPHalClient {
     private process: ChildProcess | null = null
     private requestId = 0
     private pending = new Map<number, (response: any) => void>()
@@ -28,52 +23,43 @@ export class MCPAuditClient {
         process.env.HASHILENS_MCP_DEBUG_LOGS === 'true' ||
         process.env.VAULTLENS_MCP_DEBUG_LOGS === 'true'
 
-    constructor(command: string = process.env.VAULT_AUDIT_MCP_COMMAND || './vault-audit-mcp') {
+    constructor(command: string = process.env.HAL_MCP_COMMAND || `${process.env.HOME || ''}/.hal/bin/hal-mcp`) {
         this.command = command
     }
 
-    /**
-     * Initialize the MCP server connection
-     */
     async initialize(): Promise<void> {
         if (this.initialized) {
             return
         }
 
-        console.log(`[MCP Audit Client] Starting: ${this.command}`)
+        console.log(`[MCP HAL Client] Starting: ${this.command}`)
 
         this.process = spawn(this.command, [], {
             stdio: ['pipe', 'pipe', 'pipe'],
             shell: true,
             env: {
                 ...process.env,
-                // Override Loki URL for the vault-audit-mcp server
-                LOKI_URL: process.env.LOKI_URL || 'http://loki.localhost:3100',
             },
         })
 
         if (!this.process.stdout || !this.process.stdin) {
-            throw new Error('Failed to create stdio pipes for MCP server')
+            throw new Error('Failed to create stdio pipes for HAL MCP server')
         }
 
-        // Handle stdout - parse newline-delimited JSON responses
         this.process.stdout.on('data', (chunk: Buffer) => {
             this.buffer += chunk.toString()
             this.processBuffer()
         })
 
-        // Handle stderr from MCP process (audit server logs here by default).
         this.process.stderr?.on('data', (chunk: Buffer) => {
             this.logServerStderr(chunk.toString())
         })
 
-        // Handle process exit
         this.process.on('exit', (code) => {
-            console.warn(`[MCP Audit Client] Server exited with code ${code}`)
+            console.warn(`[MCP HAL Client] Server exited with code ${code}`)
             this.initialized = false
         })
 
-        // Send initialization message
         await this.sendMessage({
             jsonrpc: '2.0',
             id: 1,
@@ -89,7 +75,7 @@ export class MCPAuditClient {
         })
 
         this.initialized = true
-        console.log('[MCP Audit Client] Initialized')
+        console.log('[MCP HAL Client] Initialized')
     }
 
     private logServerStderr(raw: string): void {
@@ -97,7 +83,7 @@ export class MCPAuditClient {
         for (const line of lines) {
             const levelMatch = line.match(/\blevel=([a-zA-Z]+)\b/)
             const level = levelMatch?.[1]?.toLowerCase()
-            const message = `[MCP Audit Server] ${line}`
+            const message = `[MCP HAL Server] ${line}`
 
             if (level === 'debug') {
                 if (this.debugLogsEnabled) {
@@ -118,18 +104,14 @@ export class MCPAuditClient {
                 continue
             }
 
-            // Unknown format: treat as informational server output.
             console.info(message)
         }
     }
 
-    /**
-     * Execute a tool call on the audit MCP server
-     */
     async callTool(
         toolName: string,
         args: Record<string, unknown>
-    ): Promise<AuditToolResult> {
+    ): Promise<HalToolResult> {
         if (!this.initialized) {
             await this.initialize()
         }
@@ -137,8 +119,9 @@ export class MCPAuditClient {
         try {
             const requestId = this.requestId + 1
             const startTime = Date.now()
-            console.log(`[MCP Audit Client] Tool call start id=${requestId} name=${toolName}`)
-            console.log(`[MCP Audit Client] Tool args id=${requestId}:`, args)
+            console.log(`[MCP HAL Client] Tool call start id=${requestId} name=${toolName}`)
+            console.log(`[MCP HAL Client] Tool args id=${requestId}:`, args)
+
             const response = await this.sendMessage({
                 jsonrpc: '2.0',
                 id: ++this.requestId,
@@ -150,13 +133,13 @@ export class MCPAuditClient {
             })
 
             console.log(
-                `[MCP Audit Client] Tool call end id=${requestId} duration_ms=${Date.now() - startTime}`
+                `[MCP HAL Client] Tool call end id=${requestId} duration_ms=${Date.now() - startTime}`
             )
 
             if (response.error) {
                 return {
                     success: false,
-                    error: response.error.message || 'MCP tool call error',
+                    error: response.error.message || 'MCP HAL tool call error',
                 }
             }
 
@@ -172,31 +155,25 @@ export class MCPAuditClient {
         }
     }
 
-    /**
-     * Send a message to the MCP server and wait for response
-     */
     private async sendMessage(message: any): Promise<any> {
         if (!this.process?.stdin) {
-            throw new Error('MCP server process not initialized')
+            throw new Error('HAL MCP server process not initialized')
         }
 
         const id = message.id
         const messageStr = JSON.stringify(message) + '\n'
 
         return new Promise((resolve, reject) => {
-            // Set a timeout for the response
             const timeout = setTimeout(() => {
                 this.pending.delete(id)
-                reject(new Error(`MCP request ${id} timed out`))
-            }, 120000) // 120 second timeout for large queries
+                reject(new Error(`MCP HAL request ${id} timed out`))
+            }, 60000)
 
-            // Register the callback for this request
             this.pending.set(id, (response) => {
                 clearTimeout(timeout)
                 resolve(response)
             })
 
-            // Send the message
             this.process!.stdin!.write(messageStr, (err) => {
                 if (err) {
                     this.pending.delete(id)
@@ -207,9 +184,6 @@ export class MCPAuditClient {
         })
     }
 
-    /**
-     * Process the buffer for complete JSON-RPC messages
-     */
     private processBuffer(): void {
         while (this.buffer.includes('\n')) {
             const newlineIndex = this.buffer.indexOf('\n')
@@ -229,17 +203,14 @@ export class MCPAuditClient {
                     this.pending.delete(id)
                     resolve(response)
                 } else {
-                    console.log('[MCP Audit Client] Received notification:', response)
+                    console.log('[MCP HAL Client] Received notification:', response)
                 }
             } catch (error) {
-                console.error('[MCP Audit Client] Failed to parse message:', line, error)
+                console.error('[MCP HAL Client] Failed to parse message:', line, error)
             }
         }
     }
 
-    /**
-     * Close the MCP server connection
-     */
     async close(): Promise<void> {
         if (this.process) {
             this.process.kill()

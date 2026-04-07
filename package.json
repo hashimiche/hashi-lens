@@ -1,7 +1,7 @@
 {
-    "name": "vaultlens",
+    "name": "hashi-lens",
     "version": "0.1.0",
-    "description": "Agent-based interface for Vault audit inspection and operations",
+    "description": "Agent-based interface for HAL and HashiCorp operations",
     "type": "module",
     "main": "dist/server/index.js",
     "scripts": {

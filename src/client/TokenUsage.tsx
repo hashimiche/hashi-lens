@@ -12,9 +12,10 @@ interface TokenUsageProps {
         messages: number
         maxContext: number
     } | null
+    compact?: boolean
 }
 
-export function TokenUsage({ tokenCount }: TokenUsageProps) {
+export function TokenUsage({ tokenCount, compact = false }: TokenUsageProps) {
     if (!tokenCount) {
         return null
     }
@@ -29,6 +30,27 @@ export function TokenUsage({ tokenCount }: TokenUsageProps) {
         statusClass = 'critical'
     } else if (percentage > 60) {
         statusClass = 'warning'
+    }
+
+    if (compact) {
+        return (
+            <div className={`token-chip ${statusClass}`} title={`${total.toLocaleString()} / ${maxContext.toLocaleString()} tokens`}>
+                <span className="token-chip-icon" aria-hidden>◔</span>
+                <span className="token-chip-label">Context</span>
+                <span className="token-chip-percent">{Math.round(percentage)}%</span>
+                <div className="token-chip-track" aria-hidden>
+                    <div
+                        className={`token-chip-fill ${statusClass}`}
+                        style={{ width: `${percentage}%` }}
+                    />
+                </div>
+                <div className="token-chip-popover">
+                    <div>{total.toLocaleString()} / {maxContext.toLocaleString()} tokens</div>
+                    <div>{messages} messages</div>
+                    <div>{remaining.toLocaleString()} remaining</div>
+                </div>
+            </div>
+        )
     }
 
     return (

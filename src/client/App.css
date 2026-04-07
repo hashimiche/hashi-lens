@@ -129,6 +129,40 @@ pre {
     border: 1px solid var(--border-light);
 }
 
+.code-block-wrapper {
+    position: relative;
+    margin-top: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.code-block {
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border);
+    padding: 1rem;
+    border-radius: 6px;
+    overflow: auto;
+    margin: 0;
+}
+
+.code-copy-button {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 0.2rem 0.5rem;
+    cursor: pointer;
+}
+
+.code-copy-button:hover {
+    color: var(--text);
+    border-color: var(--primary-light);
+}
+
 
 /* Main App Layout */
 .app {
@@ -321,6 +355,32 @@ pre {
     -webkit-text-fill-color: transparent;
     background-clip: text;
     text-align: left;
+}
+
+.loki-status-banner {
+    max-width: 945px;
+    margin: 0.75rem auto 0;
+    padding: 0.6rem 0.8rem;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.8rem;
+    border: 1px solid var(--border);
+    background: var(--surface);
+}
+
+.loki-status-banner.ready {
+    border-color: rgba(16, 185, 129, 0.35);
+}
+
+.loki-status-banner.not-ready {
+    border-color: rgba(245, 158, 11, 0.45);
+}
+
+.loki-hint {
+    font-weight: 600;
 }
 
 /* Auth Container */
@@ -916,6 +976,204 @@ pre {
 
 .message-content table tbody tr:hover {
     background: var(--bg-secondary);
+}
+
+/* Adaptive Workspace Layout */
+.app {
+    max-width: 100vw;
+    margin: 0;
+    padding: 0 0.8rem;
+}
+
+.workspace-layout {
+    display: grid;
+    grid-template-columns: minmax(250px, 320px) minmax(0, 1fr);
+    gap: 0.85rem;
+    flex: 1;
+    min-height: 0;
+    padding-bottom: 0.75rem;
+}
+
+.left-column {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    overflow: hidden;
+}
+
+.left-column .activity-panel {
+    flex: 0 0 34%;
+    min-height: 180px;
+}
+
+.left-column .documentation-sidebar {
+    flex: 1;
+    min-height: 240px;
+}
+
+.left-column .documentation-content {
+    max-height: none;
+    height: 100%;
+}
+
+.right-column {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.main-layout {
+    min-height: 0;
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    border: 1px solid transparent;
+}
+
+.app-header {
+    padding: 1rem 0.6rem 0.75rem;
+}
+
+.status-chip-row {
+    max-width: 945px;
+    margin: 0.55rem auto 0;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+
+.status-chip {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--text-secondary);
+    font-size: 0.69rem;
+    font-weight: 600;
+    padding: 0.26rem 0.5rem;
+    min-height: 31px;
+}
+
+.status-chip .status-dot {
+    font-size: 0.65rem;
+}
+
+.status-chip.ok .status-dot {
+    color: #10b981;
+}
+
+.status-chip.warn .status-dot {
+    color: #f59e0b;
+}
+
+.status-chip-popover {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    min-width: 260px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: var(--shadow-md);
+    font-size: 0.68rem;
+    color: var(--text-secondary);
+    line-height: 1.4;
+    padding: 0.45rem 0.55rem;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-4px);
+    transition: opacity 0.16s ease, transform 0.16s ease;
+    z-index: 20;
+}
+
+.status-chip:hover .status-chip-popover {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+}
+
+/* Compact mode after first user prompt */
+.app.compact .app-header {
+    padding-top: 0.55rem;
+}
+
+.app.compact .header-content {
+    justify-content: flex-start;
+    max-width: 1100px;
+    padding-left: 0.25rem;
+}
+
+.app.landing .header-content {
+    justify-content: flex-start;
+    max-width: 1100px;
+}
+
+.app.compact .vault-logo {
+    height: 56px;
+}
+
+.app.compact .app-header h1 {
+    font-size: 1.45rem;
+}
+
+.app.compact .app-header p {
+    font-size: 0.72rem;
+    letter-spacing: 0.03em;
+}
+
+.app.compact .loki-status-banner {
+    font-size: 0.74rem;
+    padding: 0.42rem 0.62rem;
+    margin-top: 0.45rem;
+}
+
+@media (max-width: 1250px) {
+    .workspace-layout {
+        grid-template-columns: minmax(235px, 290px) minmax(0, 1fr);
+    }
+
+    .messages {
+        padding-left: 1.1rem;
+        padding-right: 1.1rem;
+    }
+
+    .input-area {
+        padding-left: 1.1rem;
+        padding-right: 1.1rem;
+        padding-bottom: 1rem;
+    }
+}
+
+@media (max-width: 980px) {
+    .workspace-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .left-column {
+        max-height: 34vh;
+        overflow: auto;
+    }
+
+    .header-content {
+        justify-content: flex-start;
+    }
+
+    .vault-logo {
+        height: 84px;
+    }
+
+    .app-header h1 {
+        font-size: 2rem;
+    }
+
+    .loki-status-banner {
+        flex-direction: column;
+        align-items: flex-start;
+    }
 }
 
 .message-content table tbody tr:last-child td {

@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from 'react'
-import { AuthStatus } from './AuthStatus'
 import './DocumentationSidebar.css'
 
 interface DocumentationSuggestion {
@@ -14,24 +13,18 @@ interface DocumentationSuggestion {
 interface DocumentationSidebarProps {
     sessionId: string;
     authenticated: boolean;
-    onLogout?: () => void;
-    onAuthLoadingChange?: (loading: boolean, message: string | null) => void;
-    onUnauthenticatedViewReady?: () => void;
 }
 
-export function DocumentationSidebar({ sessionId, authenticated, onLogout, onAuthLoadingChange, onUnauthenticatedViewReady }: DocumentationSidebarProps) {
+export function DocumentationSidebar({ sessionId, authenticated }: DocumentationSidebarProps) {
     const [suggestions, setSuggestions] = useState<DocumentationSuggestion[]>([])
-    const [isOIDC, setIsOIDC] = useState(false)
-    const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null)
+    const [collapsed, setCollapsed] = useState(false)
 
-    // Check if user is using OIDC (for logout button)
+    // Keep auth poller active for other components that rely on status refresh events.
     const checkAuth = useCallback(async () => {
         try {
             const response = await fetch('/api/auth/status')
             if (response.ok) {
-                const data = await response.json()
-                setIsOIDC(data.authenticated && data.usingOIDC)
-                setIsAuthenticated(!!data.authenticated)
+                await response.json()
             }
         } catch (err) {
             console.error('Failed to check auth status:', err)
@@ -57,19 +50,6 @@ export function DocumentationSidebar({ sessionId, authenticated, onLogout, onAut
     // keep using polling and global events instead to refresh OIDC status.
 
     useEffect(() => {
-        if (!authenticated) {
-            setSuggestions([])
-            void fetch('/api/suggestions/clear', {
-                method: 'POST',
-                headers: {
-                    'X-Session-ID': sessionId
-                }
-            }).catch((err) => {
-                console.error('Failed to clear suggestions after auth loss:', err)
-            })
-            return
-        }
-
         // Poll for suggestions
         const fetchSuggestions = async () => {
             try {
@@ -93,52 +73,44 @@ export function DocumentationSidebar({ sessionId, authenticated, onLogout, onAut
     }, [sessionId, authenticated])
 
     return (
-        <div className="documentation-sidebar">
-            <div className="auth-logout-wrapper">
-                <div className="auth-status-container">
-                    {isAuthenticated !== true && (
-                        <AuthStatus onLogout={onLogout} onAuthLoadingChange={onAuthLoadingChange} hideLogoutButton={true} onUnauthenticatedViewReady={onUnauthenticatedViewReady} />
+        <section className={`documentation-sidebar ${collapsed ? 'collapsed' : ''}`}>
+            <button
+                type="button"
+                className="documentation-toggle"
+                onClick={() => setCollapsed((prev) => !prev)}
+            >
+                <span className="documentation-title">Proposed Docs</span>
+                <span className="documentation-count">{suggestions.length}</span>
+                <span className="documentation-chevron" aria-hidden>{collapsed ? '▸' : '▾'}</span>
+            </button>
+
+            {!collapsed && (
+                <div className="documentation-content">
+                    {suggestions.length === 0 && (
+                        <div className="documentation-empty">Docs will appear here as the assistant answers.</div>
                     )}
-                </div>
-                {isOIDC && onLogout && (
-                    <div className="auth-logout-container">
-                        <button className="auth-button logout" onClick={onLogout}>
-                            Logout
-                        </button>
-                    </div>
-                )}
-            </div>
-            <div className="documentation-content">
-                {suggestions.map((suggestion) => (
-                    <div key={suggestion.id} className="documentation-card">
-                        <h4 className="documentation-card-title">
+
+                    {suggestions.map((suggestion) => (
+                        <details key={suggestion.id} className="documentation-card">
+                            <summary className="documentation-card-title">{suggestion.title}</summary>
+                            <p className="documentation-card-description">{suggestion.description}</p>
+                            {suggestion.context && (
+                                <p className="documentation-card-context">
+                                    <em>{suggestion.context}</em>
+                                </p>
+                            )}
                             <a
                                 href={suggestion.url}
                                 target="_blank"
                                 rel="noopener noreferrer"
+                                className="documentation-card-link"
                             >
-                                {suggestion.title}
+                                Open Documentation →
                             </a>
-                        </h4>
-                        <p className="documentation-card-description">
-                            {suggestion.description}
-                        </p>
-                        {suggestion.context && (
-                            <p className="documentation-card-context">
-                                <em>{suggestion.context}</em>
-                            </p>
-                        )}
-                        <a
-                            href={suggestion.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="documentation-card-link"
-                        >
-                            View Documentation →
-                        </a>
-                    </div>
-                ))}
-            </div>
-        </div>
+                        </details>
+                    ))}
+                </div>
+            )}
+        </section>
     )
 }

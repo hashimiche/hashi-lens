@@ -27,7 +27,9 @@ export class MCPVaultClient {
     private command: string
     private initialized = false
     private authManager: VaultAuthManager
-    private readonly debugLogsEnabled = process.env.VAULTLENS_MCP_DEBUG_LOGS === 'true'
+    private readonly debugLogsEnabled =
+        process.env.HASHILENS_MCP_DEBUG_LOGS === 'true' ||
+        process.env.VAULTLENS_MCP_DEBUG_LOGS === 'true'
 
     constructor(command: string = process.env.VAULT_MCP_COMMAND || './vault-mcp-server', authManager: VaultAuthManager) {
         this.command = command
@@ -89,7 +91,7 @@ export class MCPVaultClient {
                 protocolVersion: '2024-11-05',
                 capabilities: {},
                 clientInfo: {
-                    name: 'vaultlens',
+                    name: 'hashi-lens',
                     version: '1.0.0',
                 },
             },

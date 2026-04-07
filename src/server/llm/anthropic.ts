@@ -8,16 +8,31 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { ExecutionEngine, ToolCall, ToolResult } from '../execution-engine.js'
 import { BaseLLMService, QueryResult, ConversationContext, StreamChunk } from './base.js'
+import { getProductScenarioPlaybookPrompt } from './products/index.js'
 
 const getSystemPrompt = (): string => {
     const now = new Date().toISOString();
-    return `You are VaultLens, an intelligent agent for querying and managing HashiCorp Vault.
+    return `You are HashiLens, an intelligent HashiCorp operations assistant.
+
+Primary goal: help users deploy and operate local HashiCorp stacks with HAL, then validate and troubleshoot with MCP tools.
+When possible, answer with practical, copy-ready outputs: HAL commands, Vault CLI/API calls, and Terraform snippets.
+
+Startup behavior:
+- The user may not have a Vault endpoint configured yet.
+- Do NOT block on missing Vault connectivity.
+- If Vault access is unavailable, provide a phased plan and HAL-first next steps, then explain what checks to run once connectivity is ready.
 
 **Current Date/Time: ${now}**
 
 When users ask about time ranges (e.g., "last 30 minutes", "last hour", "today"), calculate them relative to the current time above.
 
-You have access to two MCP servers:
+You have access to MCP tools currently wired in this runtime (Vault + audit + system docs). Additional MCPs (for example HAL/Terraform) may be added later.
+
+When MCP tools for a topic are not available, still provide high-quality guidance and concrete commands/snippets based on best practices.
+
+${getProductScenarioPlaybookPrompt()}
+
+Current MCP servers:
 
 1. **Vault Audit MCP Server** - For querying audit logs:
    - audit.search_events: Search audit events by labels. Returns a SUMMARY that includes:
@@ -93,7 +108,7 @@ When a user asks a question:
 9. **If search returns results but lacks key details** (e.g., role name, entity ID, request path, specific IP), use audit.get_event_details with the request_id from the search results to get full event information including raw audit log JSON
 
 **Documentation Suggestions Policy:**
-- Proactively call 'suggest_documentation' whenever your response discusses Vault concepts, features, configuration, troubleshooting, or best practices.
+- Proactively call 'suggest_documentation' whenever your response discusses Vault, HAL, Terraform, GitLab JWT/OIDC, observability, troubleshooting, or best practices.
 - Treat documentation suggestions as a default behavior, not an optional afterthought, when relevant docs exist.
 - Suggest 1-3 high-signal links per response, prioritizing official HashiCorp Vault docs that directly match the user's topic.
 - If your response spans multiple topics (for example auth + policy + identity), suggest at least one doc for each major topic.
@@ -780,14 +795,14 @@ export class AnthropicLLMService extends BaseLLMService {
             let needsMoreIterations = true
             while (needsMoreIterations) {
                 needsMoreIterations = false
-                fullResponse = ''
+                let iterationResponse = ''
+                let iterationHadToolUse = false
 
                 for await (const event of stream) {
                     if (event.type === 'content_block_delta') {
                         if (event.delta.type === 'text_delta') {
                             const textChunk = event.delta.text
-                            fullResponse += textChunk
-                            yield { type: 'text', content: textChunk }
+                            iterationResponse += textChunk
                         }
                     }
 
@@ -797,6 +812,7 @@ export class AnthropicLLMService extends BaseLLMService {
                         // Check if Claude wants to use tools
                         if (message.stop_reason === 'tool_use') {
                             needsMoreIterations = true
+                            iterationHadToolUse = true
 
                             // Add assistant message to history
                             const assistantMessage: Anthropic.MessageParam = {
@@ -850,6 +866,17 @@ export class AnthropicLLMService extends BaseLLMService {
                         }
                     }
                 }
+
+                if (!iterationHadToolUse) {
+                    fullResponse = iterationResponse
+                }
+            }
+
+            // Emit only final response to avoid visible draft rewrites in the UI.
+            if (fullResponse.length > 0) {
+                for (const chunk of this.chunkFinalResponse(fullResponse)) {
+                    yield { type: 'text', content: chunk }
+                }
             }
 
             // Add Claude's final response to history
@@ -875,6 +902,34 @@ export class AnthropicLLMService extends BaseLLMService {
             console.error('[Anthropic Agent] Streaming error:', error)
             throw error
         }
+    }
+
+    private chunkFinalResponse(text: string): string[] {
+        const chunks: string[] = []
+        const maxChunkSize = 280
+        let remaining = text
+
+        while (remaining.length > maxChunkSize) {
+            let cut = remaining.lastIndexOf('\n\n', maxChunkSize)
+            if (cut < Math.floor(maxChunkSize * 0.5)) {
+                cut = remaining.lastIndexOf('\n', maxChunkSize)
+            }
+            if (cut < Math.floor(maxChunkSize * 0.5)) {
+                cut = remaining.lastIndexOf(' ', maxChunkSize)
+            }
+            if (cut <= 0) {
+                cut = maxChunkSize
+            }
+
+            chunks.push(remaining.slice(0, cut))
+            remaining = remaining.slice(cut)
+        }
+
+        if (remaining.length > 0) {
+            chunks.push(remaining)
+        }
+
+        return chunks
     }
 
     /**

@@ -404,7 +404,7 @@ export class OIDCAuthenticator {
     <h1>Login Successful</h1>
     <p>Your identity has been verified and authenticated with Vault.</p>
     <div class="info">
-      <strong>Next step:</strong> You can safely close this window and return to VaultLens.
+      <strong>Next step:</strong> You can safely close this window and return to Hashi Lens.
     </div>
   </div>
 </body>

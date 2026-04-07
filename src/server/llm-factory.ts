@@ -7,10 +7,9 @@
 
 import { ExecutionEngine } from './execution-engine.js'
 import { BaseLLMService } from './llm/base.js'
-import { AnthropicLLMService } from './llm/anthropic.js'
-import { OpenAILLMService } from './llm/openai.js'
+import { OllamaLLMService } from './llm/ollama.js'
 
-export type LLMProvider = 'anthropic' | 'openai'
+export type LLMProvider = 'ollama'
 
 /**
  * Create an LLM service instance based on the configured provider
@@ -20,26 +19,14 @@ export type LLMProvider = 'anthropic' | 'openai'
  * @throws Error if the provider is not configured or is invalid
  */
 export function createLLMService(executionEngine: ExecutionEngine): BaseLLMService {
-    const provider = (process.env.LLM_PROVIDER || 'anthropic').toLowerCase() as LLMProvider
+    const provider = (process.env.LLM_PROVIDER || 'ollama').toLowerCase()
+
+    if (provider !== 'ollama') {
+        throw new Error(
+            `Unsupported LLM provider: ${provider}. Hashi Lens is configured for ollama only.`
+        )
+    }
 
     console.log(`[LLM Factory] Creating ${provider} LLM service`)
-
-    switch (provider) {
-        case 'anthropic':
-            if (!process.env.ANTHROPIC_API_KEY) {
-                throw new Error('ANTHROPIC_API_KEY environment variable is not set')
-            }
-            return new AnthropicLLMService(executionEngine)
-
-        case 'openai':
-            if (!process.env.OPENAI_API_KEY) {
-                throw new Error('OPENAI_API_KEY environment variable is not set')
-            }
-            return new OpenAILLMService(executionEngine)
-
-        default:
-            throw new Error(
-                `Unknown LLM provider: ${provider}. Supported providers: anthropic, openai`
-            )
-    }
+    return new OllamaLLMService(executionEngine)
 }

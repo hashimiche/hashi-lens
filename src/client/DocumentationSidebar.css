@@ -1,553 +1,109 @@
-/* Documentation Sidebar - Right Side */
 .documentation-sidebar {
-    position: fixed;
-    right: 20px;
-    top: 20px;
-    bottom: 20px;
-    width: clamp(210px, 18vw, 390px);
-    max-width: calc(100vw - 40px);
-    background: var(--bg-secondary);
-    display: flex;
-    flex-direction: column;
-    z-index: 50;
-}
-
-/* Auth and Logout Wrapper - Horizontal Layout */
-.auth-logout-wrapper {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
-    padding: 0.75rem 20px 0.75rem 0.5rem;
-    background: transparent;
-    border-bottom: none;
-    flex-shrink: 0;
-    flex-wrap: nowrap;
-}
-
-.auth-status-container {
-    /* shrink to content so buttons align without leftover space */
-    flex: 0 0 auto;
-    min-width: 0;
-    margin: 0;
-}
-
-.auth-logout-container {
-    /* mirror auth-status-container so logout aligns the same */
-    flex: 0 0 auto;
-    min-width: 0;
-    margin: 0;
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-}
-
-/* Push logout container to the far right of the wrapper */
-.auth-logout-container {
-    margin-left: auto;
-}
-
-.auth-logout-container .auth-button.logout {
-    align-self: flex-start;
-}
-
-/* Constrain the auth-status container to align its button and keep sizing consistent */
-.auth-logout-wrapper .auth-status-container {
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-}
-
-/* Auth Status inside auth-logout-wrapper */
-.auth-logout-wrapper .auth-status-container .auth-status {
-    background: transparent;
-    border: none;
-    padding: 0;
-    box-shadow: none;
-}
-
-.auth-logout-wrapper .auth-status-container .auth-status.unauthenticated {
-    background: transparent;
-    border: none;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-}
-
-.auth-logout-wrapper .auth-status-container .auth-header-container {
-    border: none;
-    padding: 0;
-    box-shadow: none;
-    background: transparent;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.5rem;
-    font-size: 0.7rem;
-}
-
-.auth-logout-wrapper .auth-status-container .auth-info-section {
-    flex-direction: column;
-    gap: 0.4rem;
-}
-
-.auth-logout-wrapper .auth-status-container .auth-details {
-    padding: 0.5rem 0.6rem;
-    font-size: 0.7rem;
-}
-
-.auth-logout-wrapper .auth-status-container .auth-status-icon {
-    font-size: 1.2rem;
-    display: block;
-    text-align: center;
-    margin-bottom: 0.25rem;
-}
-
-.auth-logout-wrapper .auth-status-container .auth-content {
-    gap: 0.25rem;
-}
-
-.auth-logout-wrapper .auth-status-container .auth-primary,
-.auth-logout-wrapper .auth-status-container .auth-secondary {
-    font-size: 0.65rem;
-}
-
-.auth-logout-wrapper .auth-status-container .auth-actions {
-    display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
-}
-
-.auth-logout-wrapper .auth-status-container .auth-button.login {
-    /* Fixed size to match logout button */
-    width: min(100%, 240px);
-    height: 40px;
-    max-height: 40px;
-    max-width: 100%;
-    flex: 0 0 auto;
-    box-sizing: border-box;
-    padding: 10px 16px;
-    font-size: 14px;
-}
-
-.auth-logout-wrapper .auth-button.logout {
-    /* Fixed size to match connect button */
-    width: min(100%, 240px);
-    max-width: 100%;
-    flex: 0 0 auto;
-    box-sizing: border-box;
-    padding: 10px 16px;
-    font-size: 14px;
-}
-
-.auth-logout-wrapper .auth-status-container .auth-button.login {
-    background: var(--primary);
-    color: white;
-    border: none;
-    border-radius: 6px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-
-.auth-logout-wrapper .auth-status-container .auth-button.login:hover {
-    opacity: 0.9;
-    transform: translateY(-1px);
-}
-
-.auth-logout-wrapper .auth-status-container .auth-info {
-    font-size: 0.7rem;
-    color: var(--text-secondary);
-    text-align: center;
-}
-
-/* Token Usage Section */
-.token-usage-section {
-    padding: 0.75rem 0.5rem;
-    background: transparent;
-    border-bottom: none;
-    flex-shrink: 0;
-    margin-top: 0.5rem;
-}
-
-.token-usage-section .token-usage {
-    position: static !important;
-    min-width: auto !important;
-    width: 100% !important;
-    padding: 0;
-    font-size: 0.7rem;
-    box-shadow: none;
-    background: transparent;
-    border: none;
-    bottom: auto !important;
-    right: auto !important;
-    z-index: auto !important;
-}
-
-.token-usage-section .token-usage-label,
-.token-usage-section .token-usage-stats,
-.token-usage-section .token-usage-messages,
-.token-usage-section .token-usage-remaining {
-    font-size: 0.65rem;
-}
-
-.token-usage-section .token-usage-header {
-    margin-bottom: 0.4rem;
-}
-
-.token-usage-section .token-usage-bar-container {
-    margin-bottom: 0.4rem;
-    height: 4px;
-}
-
-/* Auth Status Wrapper */
-.auth-status-wrapper {
-    padding: 0.75rem 0.5rem;
-    background: transparent;
-    border-bottom: none;
-    flex-shrink: 0;
-    display: flex;
-    flex-direction: column;
-}
-
-/* Ensure auth-status is visible in sidebar */
-.auth-status-wrapper .auth-status {
-    background: transparent;
-    border: none;
-    padding: 0;
-    box-shadow: none;
-}
-
-.auth-status-wrapper .auth-status.unauthenticated {
-    background: transparent;
-    border: none;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-}
-
-.auth-status-wrapper .auth-header-container {
-    border: none;
-    padding: 0;
-    box-shadow: none;
-    background: transparent;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.5rem;
-    font-size: 0.7rem;
-}
-
-.auth-status-wrapper .auth-info-section {
-    flex-direction: column;
-    gap: 0.4rem;
-}
-
-.auth-status-wrapper .auth-details {
-    padding: 0.5rem 0.6rem;
-    font-size: 0.7rem;
-}
-
-.auth-status-wrapper .auth-status-icon {
-    font-size: 1.2rem;
-    display: block;
-    text-align: center;
-    margin-bottom: 0.25rem;
-}
-
-.auth-status-wrapper .auth-content {
-    gap: 0.25rem;
-}
-
-.auth-status-wrapper .auth-primary,
-.auth-status-wrapper .auth-secondary {
-    font-size: 0.65rem;
-}
-
-.auth-status-wrapper .auth-actions {
-    display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
-}
-
-.auth-status-wrapper .auth-button {
-    font-size: 0.7rem;
-    padding: 0.5rem 0.75rem;
-    width: 100%;
-    white-space: normal;
-    text-align: center;
-    line-height: 1.3;
-}
-
-.auth-status-wrapper .auth-button.login {
-    background: var(--primary);
-    color: white;
-    border: none;
-    border-radius: 6px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-
-.auth-status-wrapper .auth-button.login:hover {
-    opacity: 0.9;
-    transform: translateY(-1px);
-}
-
-.auth-status-wrapper .auth-info {
-    font-size: 0.7rem;
-    color: var(--text-secondary);
-    text-align: center;
-}
-
-/* Token and Logout Wrapper - Horizontal Layout */
-.token-logout-wrapper {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
-    padding: 0.75rem 0.5rem;
-    background: transparent;
-    border-bottom: none;
-    flex-shrink: 0;
-    flex-wrap: nowrap;
-}
-
-/* Token Usage Wrapper */
-.token-logout-wrapper .token-usage-wrapper {
-    flex: 1;
-    min-width: 0;
-    max-width: 100%;
-    padding: 0;
-    background: transparent;
-    border-bottom: none;
-    overflow: hidden;
-}
-
-.token-logout-wrapper .token-usage-wrapper .token-usage {
-    position: static !important;
-    min-width: auto !important;
-    width: 100% !important;
-    padding: 0;
-    font-size: 0.7rem;
-    box-shadow: none;
-    background: transparent;
-    border: none;
-    bottom: auto !important;
-    right: auto !important;
-    z-index: auto !important;
-}
-
-.token-usage-wrapper .token-usage-label,
-.token-usage-wrapper .token-usage-stats,
-.token-usage-wrapper .token-usage-messages,
-.token-usage-wrapper .token-usage-remaining {
-    font-size: 0.65rem;
-}
-
-.token-usage-wrapper .token-usage-header {
-    margin-bottom: 0.4rem;
-}
-
-.token-usage-wrapper .token-usage-bar-container {
-    margin-bottom: 0.4rem;
-    height: 4px;
-}
-
-/* Logout Button in Sidebar */
-.auth-logout-wrapper .logout-button-sidebar {
-    padding: 0.4rem 0.6rem;
-    background: var(--error);
-    color: white;
-    border: none;
-    border-radius: 6px;
-    font-size: 0.7rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-    white-space: nowrap;
-    flex-shrink: 0;
-    align-self: flex-start;
-}
-
-.auth-logout-wrapper .logout-button-sidebar:hover {
-    background: #dc2626;
-    transform: translateY(-1px);
-}
-
-.auth-logout-wrapper .logout-button-sidebar:active {
-    transform: translateY(0);
-}
-
-/* Make the logout button match Connect button dimensions */
-.auth-logout-container .auth-button.logout,
-.auth-logout-wrapper .auth-status-container .auth-button.login {
-    /* make logout and connect share the same fixed dimensions */
-    width: min(100%, 240px);
-    max-width: 100%;
-    box-sizing: border-box;
-    padding: 10px 16px;
-    font-size: 14px;
-    flex: 0 0 auto;
-}
-
-.documentation-header {
-    display: none;
-}
-
-.documentation-clear-button {
-    padding: 0.375rem 0.75rem;
-    background: var(--bg);
+    background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 6px;
-    font-size: 0.8125rem;
-    font-weight: 500;
-    color: var(--text);
-    cursor: pointer;
-    transition: all 0.2s;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
 }
 
-.documentation-clear-button:hover {
+.documentation-toggle {
+    width: 100%;
+    border: none;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 0.8rem;
+    text-align: left;
+}
+
+.documentation-title {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.documentation-count {
+    min-width: 1.4rem;
+    text-align: center;
+    border-radius: 999px;
     background: var(--bg-tertiary);
-    border-color: var(--primary);
+    color: var(--text-secondary);
+    font-size: 0.68rem;
+    font-family: var(--mono-font);
+    padding: 0.15rem 0.35rem;
+}
+
+.documentation-chevron {
+    font-size: 0.78rem;
+    color: var(--text-tertiary);
 }
 
 .documentation-content {
-    flex: 1;
-    overflow-y: auto;
-    overflow-x: hidden;
-    padding: 0.5rem;
+    max-height: 36vh;
+    overflow: auto;
+    padding: 0.45rem 0.55rem 0.65rem;
     display: flex;
     flex-direction: column;
-    justify-content: center;
-    gap: 0.75rem;
-    word-wrap: break-word;
-    overflow-wrap: break-word;
-}
-
-.documentation-content::-webkit-scrollbar {
-    width: 6px;
-}
-
-.documentation-content::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-.documentation-content::-webkit-scrollbar-thumb {
-    background: var(--border);
-    border-radius: 3px;
-}
-
-.documentation-content::-webkit-scrollbar-thumb:hover {
-    background: var(--text-tertiary);
+    gap: 0.45rem;
 }
 
 .documentation-empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 1rem 0.5rem;
-    text-align: center;
+    border: 1px dashed var(--border-light);
+    border-radius: 8px;
     color: var(--text-tertiary);
-    height: 100%;
-}
-
-.documentation-empty p {
-    margin: 0.5rem 0;
-    font-size: 0.75rem;
-    line-height: 1.3;
-}
-
-.documentation-empty-hint {
-    font-size: 0.6875rem;
-    color: var(--text-tertiary);
-    opacity: 0.7;
-    line-height: 1.3;
+    font-size: 0.72rem;
+    padding: 0.6rem;
 }
 
 .documentation-card {
-    padding: 0.75rem;
     background: var(--bg);
     border: 1px solid var(--border);
     border-radius: 8px;
-    transition: all 0.2s;
-    word-wrap: break-word;
-    overflow-wrap: break-word;
-    animation: slideInRight 0.3s ease-out;
-}
-
-@keyframes slideInRight {
-    from {
-        opacity: 0;
-        transform: translateX(20px);
-    }
-
-    to {
-        opacity: 1;
-        transform: translateX(0);
-    }
-}
-
-.documentation-card:hover {
-    border-color: var(--primary);
-    box-shadow: var(--shadow);
+    padding: 0.55rem 0.6rem;
 }
 
 .documentation-card-title {
-    margin: 0 0 0.5rem 0;
-    font-size: 0.8125rem;
+    cursor: pointer;
+    font-size: 0.75rem;
     font-weight: 600;
-    line-height: 1.3;
-}
-
-.documentation-card-title a {
     color: var(--text);
-    text-decoration: none;
-    transition: color 0.2s;
+    list-style: none;
 }
 
-.documentation-card-title a:hover {
-    color: var(--primary);
+.documentation-card-title::-webkit-details-marker {
+    display: none;
+}
+
+.documentation-card-title::before {
+    content: '▸';
+    color: var(--text-tertiary);
+    margin-right: 0.35rem;
+}
+
+.documentation-card[open] .documentation-card-title::before {
+    content: '▾';
 }
 
 .documentation-card-description {
-    margin: 0.5rem 0;
-    font-size: 0.75rem;
-    line-height: 1.4;
+    margin: 0.5rem 0 0;
     color: var(--text-secondary);
+    font-size: 0.72rem;
+    line-height: 1.4;
 }
 
 .documentation-card-context {
-    margin: 0.5rem 0;
-    font-size: 0.6875rem;
-    line-height: 1.3;
+    margin: 0.4rem 0 0;
     color: var(--text-tertiary);
+    font-size: 0.69rem;
 }
 
 .documentation-card-link {
-    display: inline-flex;
-    align-items: center;
-    margin-top: 0.75rem;
-    font-size: 0.75rem;
-    font-weight: 500;
-    color: var(--primary);
-    text-decoration: none;
-    transition: color 0.2s;
-}
-
-.documentation-card-link:hover {
-    color: var(--primary-dark);
-}
-
-@media (max-width: 768px) {
-    .documentation-sidebar {
-        display: none;
-    }
-}
-
-@media (prefers-color-scheme: dark) {
-    .documentation-card {
-        background: var(--bg-secondary);
-    }
+    display: inline-block;
+    margin-top: 0.5rem;
+    font-size: 0.7rem;
+    font-weight: 600;
 }

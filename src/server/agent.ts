@@ -5,10 +5,9 @@
  * New code should import from './llm/base.js' and use createLLMService() from './llm-factory'
  *
  * This module now re-exports from the new modular LLM architecture
- * that supports multiple LLM providers (Anthropic, OpenAI, etc.)
+ * currently configured for Ollama in this repo.
  */
 
 export { BaseLLMService as AgentService, QueryResult, ConversationContext } from './llm/base.js'
-export { AnthropicLLMService } from './llm/anthropic.js'
-export { OpenAILLMService } from './llm/openai.js'
+export { OllamaLLMService } from './llm/ollama.js'
 

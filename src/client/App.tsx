@@ -14,13 +14,46 @@ interface Message {
     toolResults?: Array<{ type: string; tool: string; success: boolean; result?: unknown; error?: string }>
 }
 
+interface RuntimeInfo {
+    ui: { url: string }
+    loki: { url: string; ready: boolean; hint: string | null }
+    halMcp?: { command: string; executable: boolean; hint: string | null }
+    ollama?: {
+        url: string
+        model: string
+        reachable: boolean
+        installed: boolean
+        hint: string | null
+    }
+}
+
+interface HalFeatureStatus {
+    name: string
+    status: 'enabled' | 'disabled' | 'unknown'
+    details?: string
+}
+
+interface HalProductStatus {
+    name: string
+    state: 'running' | 'not-deployed'
+    endpoint: string
+    version: string
+    features: HalFeatureStatus[]
+}
+
+interface HalStatusResponse {
+    products: HalProductStatus[]
+    raw: string
+    error?: string
+}
+
 function App() {
     // Generate or retrieve session ID
     const getSessionId = () => {
-        let sessionId = localStorage.getItem('vaultlens-session-id')
+        let sessionId = localStorage.getItem('hashilens-session-id')
         if (!sessionId) {
             sessionId = `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-            localStorage.setItem('vaultlens-session-id', sessionId)
+            localStorage.setItem('hashilens-session-id', sessionId)
         }
         return sessionId
     }
@@ -31,7 +64,7 @@ function App() {
         {
             id: '0',
             role: 'assistant',
-            content: 'Hello! I\'m VaultLens. I can help you examine your Vault environment by accessing Vault\'s configuration, audit logs, and telemetry. What would you like to do?',
+            content: 'Hello! I\'m Hashi Lens. I can help with HAL workflows, Vault configuration, audit analysis, and Terraform guidance. You can start chatting now, and optionally connect Vault when you want live cluster inspection.',
             timestamp: new Date().toISOString(),
         },
     ])
@@ -44,7 +77,10 @@ function App() {
     // True after auth network calls finish but before UI is fully ready to use
     const [authPendingUiReady, setAuthPendingUiReady] = useState(false)
     const [tokenCount, setTokenCount] = useState<{ total: number; messages: number; maxContext: number } | null>(null)
-    const [uiReadyForAuth, setUiReadyForAuth] = useState(false)
+    const [runtimeInfo, setRuntimeInfo] = useState<RuntimeInfo | null>(null)
+    const [halStatus, setHalStatus] = useState<HalStatusResponse | null>(null)
+    const [showReadyBanners, setShowReadyBanners] = useState(true)
+    const [uiReadyForAuth] = useState(false)
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const messagesContainerRef = useRef<HTMLDivElement>(null)
     const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -57,11 +93,6 @@ function App() {
             if (response.ok) {
                 const data = await response.json()
                 setAuthenticated(data.authenticated)
-
-                // If unauthenticated, clear messages
-                if (!data.authenticated) {
-                    setMessages([])
-                }
             }
         } catch (err) {
             console.error('Failed to check authentication:', err)
@@ -159,6 +190,53 @@ function App() {
             inputRef.current?.focus()
         }
     }, [loading])
+
+    useEffect(() => {
+        const fetchRuntimeInfo = async () => {
+            try {
+                const response = await fetch('/api/runtime-info')
+                if (response.ok) {
+                    const data = await response.json()
+                    setRuntimeInfo(data)
+                }
+            } catch (err) {
+                console.error('Failed to fetch runtime info:', err)
+            }
+        }
+
+        fetchRuntimeInfo()
+        const interval = setInterval(fetchRuntimeInfo, 15000)
+        return () => clearInterval(interval)
+    }, [])
+
+    useEffect(() => {
+        const fetchHalStatus = async () => {
+            try {
+                const response = await fetch('/api/hal/status')
+                if (response.ok) {
+                    const data = await response.json() as HalStatusResponse
+                    setHalStatus(data)
+                }
+            } catch (err) {
+                console.error('Failed to fetch HAL status:', err)
+            }
+        }
+
+        fetchHalStatus()
+        const interval = setInterval(fetchHalStatus, 12000)
+        return () => clearInterval(interval)
+    }, [])
+
+    useEffect(() => {
+        if (!runtimeInfo?.loki || !runtimeInfo?.ollama) return
+        if (!(runtimeInfo.loki.ready && runtimeInfo.ollama.reachable && runtimeInfo.ollama.installed)) return
+
+        const timer = setTimeout(() => {
+            setShowReadyBanners(false)
+        }, 4500)
+
+        return () => clearTimeout(timer)
+    }, [runtimeInfo])
     // Fetch token count periodically
     useEffect(() => {
         const fetchTokenCount = async () => {
@@ -218,7 +296,16 @@ function App() {
             })
 
             if (!response.ok) {
-                throw new Error('Failed to start streaming query')
+                let serverError = 'Failed to start streaming query'
+                try {
+                    const data = await response.json()
+                    if (data?.error && typeof data.error === 'string') {
+                        serverError = data.error
+                    }
+                } catch (_parseError) {
+                    // Ignore parse failures and keep fallback message.
+                }
+                throw new Error(serverError)
             }
 
             if (!response.body) {
@@ -312,83 +399,6 @@ function App() {
         }
     }
 
-    // Called by AuthStatus at start/end of login/logout
-    const handleAuthLoadingChange = useCallback((loading: boolean, message: string | null) => {
-        if (loading) {
-            setAuthLoading(loading)
-            setAuthLoadingMessage(message)
-            setAuthPendingUiReady(false)
-            setUiReadyForAuth(false)
-            return
-        }
-
-        // Keep overlay visible after network auth completes until UI readiness effect dismisses it.
-        setAuthPendingUiReady(true)
-        setAuthLoadingMessage(message || 'Finalizing interface...')
-    }, [])
-
-    // Called by AuthStatus when unauthenticated UI is visible
-    const handleUnauthenticatedViewReady = useCallback(() => {
-        setUiReadyForAuth(true)
-    }, [])
-
-    const handleLogout = async () => {
-        setAuthLoading(true)
-        setAuthPendingUiReady(false)
-        setAuthLoadingMessage('Logging out...')
-        setUiReadyForAuth(false)
-        try {
-            // Clear chat history and suggestions
-            await fetch('/api/history/clear', {
-                method: 'POST',
-                headers: { 'X-Session-ID': sessionId.current }
-            })
-            await fetch('/api/suggestions/clear', {
-                method: 'POST',
-                headers: { 'X-Session-ID': sessionId.current }
-            })
-            await fetch('/api/activities/clear', {
-                method: 'POST',
-                headers: { 'X-Session-ID': sessionId.current }
-            })
-            // Logout from Vault
-            await fetch('/api/auth/logout', { method: 'POST' })
-
-            // Immediately check backend status and update UI
-            const response = await fetch('/api/auth/status')
-            let isUnauth = false
-            if (response.ok) {
-                const data = await response.json()
-                setAuthenticated(data.authenticated)
-                isUnauth = !data.authenticated
-            } else {
-                setAuthenticated(false)
-                isUnauth = true
-            }
-
-            // Reset UI state
-            setMessages([])
-            setTokenCount(null)
-
-            // Only hide overlay after unauthenticated and UI is reset
-            if (isUnauth) {
-                setAuthLoading(false)
-                setAuthLoadingMessage(null)
-                setAuthPendingUiReady(false)
-            }
-
-            // Notify other components to refresh auth status immediately
-            if (typeof window !== 'undefined' && window.dispatchEvent) {
-                window.dispatchEvent(new CustomEvent('vault-auth-status-refresh'))
-            }
-        } catch (err) {
-            console.error('Logout failed:', err)
-            setAuthLoading(false)
-            setAuthLoadingMessage(null)
-            setAuthPendingUiReady(false)
-        }
-    }
-
     const handleClearHistory = async () => {
         try {
             await fetch('/api/history/clear', {
@@ -403,7 +413,7 @@ function App() {
                 {
                     id: '0',
                     role: 'assistant',
-                    content: 'Hello! I\'m VaultLens. I can help you examine your Vault environment by accessing Vault\'s configuration, audit logs, and telemetry. What would you like to do?',
+                    content: 'Hello! I\'m Hashi Lens. I can help with HAL workflows, Vault configuration, audit analysis, and Terraform guidance. What would you like to do?',
                     timestamp: new Date().toISOString(),
                 },
             ])
@@ -421,7 +431,7 @@ function App() {
                 {
                     id: '0',
                     role: 'assistant',
-                    content: 'Hello! I\'m VaultLens. I can help you examine your Vault environment by accessing Vault\'s configuration, audit logs, and telemetry. What would you like to do?',
+                    content: 'Hello! I\'m Hashi Lens. I can help with HAL workflows, Vault configuration, audit analysis, and Terraform guidance. What would you like to do?',
                     timestamp: new Date().toISOString(),
                 },
             ])
@@ -441,6 +451,15 @@ function App() {
         return hasTable || hasCodeBlock
     }
 
+    const hasUserMessages = messages.some((msg) => msg.role === 'user')
+    const lokiReady = !!runtimeInfo?.loki?.ready
+    const ollamaReady = !!(runtimeInfo?.ollama?.reachable && runtimeInfo?.ollama?.installed)
+    const halMcpReady = runtimeInfo?.halMcp?.executable ?? true
+
+    const showLokiBanner = !!runtimeInfo?.loki && (!lokiReady || showReadyBanners)
+    const showOllamaBanner = !!runtimeInfo?.ollama && (!ollamaReady || showReadyBanners)
+    const halProducts = halStatus?.products || []
+
     return (
         <>
             {/* Global auth loading overlay: only show when authentication is actively loading */}
@@ -453,146 +472,187 @@ function App() {
                 </div>
             )}
 
-            {authenticated && (
-                <ActivityPanel
-                    sessionId={sessionId.current}
-                    onLogout={handleLogout}
-                    onAuthLoadingChange={handleAuthLoadingChange}
-                    onUnauthenticatedViewReady={handleUnauthenticatedViewReady}
-                />
-            )}
+            <div className={`app ${hasUserMessages ? 'compact' : 'landing'}`}>
+                <div className="workspace-layout">
+                    <aside className="left-column">
+                        <ActivityPanel sessionId={sessionId.current} />
+                        <DocumentationSidebar
+                            sessionId={sessionId.current}
+                            authenticated={authenticated}
+                        />
+                    </aside>
 
-            <div className="app">
-                <header className="app-header">
-                    <div className="header-content">
-                        <img src="/image.png" alt="Vault" className="vault-logo" />
-                        <div className="header-text">
-                            <h1>VaultLens</h1>
-                            <p>[ Agent-powered Vault audit and operations interface ]</p>
-                        </div>
-                    </div>
-                </header>
-
-                {authenticated ? (
-                    <div className="main-layout">
-                        <div className="center-content">
-                            <div className="chat-container">
-                                <div
-                                    ref={messagesContainerRef}
-                                    className="messages"
-                                    onScroll={handleMessagesScroll}
-                                >
-                                    {!authenticated && messages.length === 0 && (
-                                        <div className="unauthenticated-image-container">
-                                            <img src="/vault-lens.png" alt="VaultLens" className="vault-lens-image" />
-                                        </div>
-                                    )}
-                                    {messages.map((msg) => {
-                                        const messageClasses = `message message-${msg.role}${hasTableContent(msg.content) ? ' has-table' : ''}`
-                                        return (
-                                            <div key={msg.id} className={messageClasses}>
-                                                <div className="message-header">
-                                                    {msg.role === 'user' ? (
-                                                        <span className="message-role">Me</span>
-                                                    ) : (
-                                                        <img src="/vault-icon-black.png" alt="VaultLens" className="message-avatar" />
-                                                    )}
-                                                    <span className="message-time">{new Date(msg.timestamp).toLocaleTimeString()}</span>
-                                                </div>
-                                                <div className="message-content">
-                                                    {msg.content ? (
-                                                        <MarkdownText content={msg.content} />
-                                                    ) : msg.role === 'assistant' ? (
-                                                        <span className="thinking-dots">
-                                                            <span>.</span><span>.</span><span>.</span>
-                                                        </span>
-                                                    ) : null}
-                                                </div>
-                                            </div>
-                                        )
-                                    })}
-                                    {error && (
-                                        <div className="message message-error">
-                                            <div className="message-header">
-                                                <span className="message-role">Error</span>
-                                            </div>
-                                            <div className="message-content">{error}</div>
-                                        </div>
-                                    )}
-                                    <div ref={messagesEndRef} />
+                    <div className="right-column">
+                        <header className="app-header">
+                            <div className="header-content">
+                                <img src="/hal_logo.png" alt="Hashi Lens" className="vault-logo" />
+                                <div className="header-text">
+                                    <h1>Hashi Lens</h1>
+                                    <p>[ Agent-powered HAL + HashiCorp operations interface ]</p>
                                 </div>
                             </div>
+                            <div className="status-chip-row">
+                                {runtimeInfo?.loki && (
+                                    <div className={`status-chip ${lokiReady ? 'ok' : 'warn'}`}>
+                                        <span className="status-dot" aria-hidden>{lokiReady ? '●' : '○'}</span>
+                                        <span>Loki</span>
+                                        <span className="status-chip-popover">
+                                            {runtimeInfo.loki.url} · {lokiReady ? 'ready' : 'not reachable'}
+                                            {runtimeInfo.loki.hint ? ` · ${runtimeInfo.loki.hint}` : ''}
+                                        </span>
+                                    </div>
+                                )}
+                                {runtimeInfo?.ollama && (
+                                    <div className={`status-chip ${ollamaReady ? 'ok' : 'warn'}`}>
+                                        <span className="status-dot" aria-hidden>{ollamaReady ? '●' : '○'}</span>
+                                        <span>Ollama</span>
+                                        <span className="status-chip-popover">
+                                            {runtimeInfo.ollama.url} · model {runtimeInfo.ollama.model} · {ollamaReady ? 'ready' : (runtimeInfo.ollama.reachable ? 'model missing' : 'not reachable')}
+                                            {runtimeInfo.ollama.hint ? ` · ${runtimeInfo.ollama.hint}` : ''}
+                                        </span>
+                                    </div>
+                                )}
+                                {runtimeInfo?.halMcp && (
+                                    <div className={`status-chip ${halMcpReady ? 'ok' : 'warn'}`}>
+                                        <span className="status-dot" aria-hidden>{halMcpReady ? '●' : '○'}</span>
+                                        <span>HAL MCP</span>
+                                        <span className="status-chip-popover">
+                                            {runtimeInfo.halMcp.command} · {halMcpReady ? 'executable' : 'not executable'}
+                                            {runtimeInfo.halMcp.hint ? ` · ${runtimeInfo.halMcp.hint}` : ''}
+                                        </span>
+                                    </div>
+                                )}
+                                {halProducts.map((product) => {
+                                    const running = product.state === 'running'
+                                    return (
+                                        <div key={product.name} className={`status-chip ${running ? 'ok' : 'warn'}`}>
+                                            <span className="status-dot" aria-hidden>{running ? '●' : '○'}</span>
+                                            <span>{product.name}</span>
+                                            <span className="status-chip-popover">
+                                                {product.endpoint || 'endpoint unknown'} · {running ? 'running' : 'not deployed'} · v{product.version}
+                                                {product.features.length > 0
+                                                    ? ` · ${product.features.map((feature) => `${feature.name}:${feature.status}`).join(', ')}`
+                                                    : ''}
+                                            </span>
+                                        </div>
+                                    )
+                                })}
+                                <TokenUsage tokenCount={tokenCount} compact />
+                            </div>
+                            {showLokiBanner && runtimeInfo?.loki && (
+                                <div className={`loki-status-banner ${runtimeInfo.loki.ready ? 'ready' : 'not-ready'}`}>
+                                    <span>
+                                        Loki: {runtimeInfo.loki.url} · {runtimeInfo.loki.ready ? 'ready' : 'not reachable'}
+                                    </span>
+                                    {!runtimeInfo.loki.ready && runtimeInfo.loki.hint && (
+                                        <span className="loki-hint">{runtimeInfo.loki.hint}</span>
+                                    )}
+                                </div>
+                            )}
+                            {showOllamaBanner && runtimeInfo?.ollama && (
+                                <div
+                                    className={`loki-status-banner ${runtimeInfo.ollama.reachable && runtimeInfo.ollama.installed ? 'ready' : 'not-ready'}`}
+                                >
+                                    <span>
+                                        Ollama: {runtimeInfo.ollama.url} · model {runtimeInfo.ollama.model} · {runtimeInfo.ollama.reachable ? (runtimeInfo.ollama.installed ? 'ready' : 'model missing') : 'not reachable'}
+                                    </span>
+                                    {runtimeInfo.ollama.hint && (
+                                        <span className="loki-hint">{runtimeInfo.ollama.hint}</span>
+                                    )}
+                                </div>
+                            )}
+                        </header>
 
-                            {loading && !autoScrollEnabled && (
-                                <div className="auto-scroll-chip-row">
-                                    <button
-                                        type="button"
-                                        className="auto-scroll-chip"
-                                        onClick={handleJumpToLatest}
-                                    >
-                                        Auto-scroll paused · Jump to latest
+                        <div className="main-layout">
+                        <div className="center-content">
+                        <div className="chat-container">
+                            <div
+                                ref={messagesContainerRef}
+                                className="messages"
+                                onScroll={handleMessagesScroll}
+                            >
+                                {messages.map((msg) => {
+                                    const messageClasses = `message message-${msg.role}${hasTableContent(msg.content) ? ' has-table' : ''}`
+                                    return (
+                                        <div key={msg.id} className={messageClasses}>
+                                            <div className="message-header">
+                                                {msg.role === 'user' ? (
+                                                    <span className="message-role">Me</span>
+                                                ) : (
+                                                    <img src="/vault-icon-black.png" alt="Hashi Lens" className="message-avatar" />
+                                                )}
+                                                <span className="message-time">{new Date(msg.timestamp).toLocaleTimeString()}</span>
+                                            </div>
+                                            <div className="message-content">
+                                                {msg.content ? (
+                                                    <MarkdownText content={msg.content} />
+                                                ) : msg.role === 'assistant' ? (
+                                                    <span className="thinking-dots">
+                                                        <span>.</span><span>.</span><span>.</span>
+                                                    </span>
+                                                ) : null}
+                                            </div>
+                                        </div>
+                                    )
+                                })}
+                                {error && (
+                                    <div className="message message-error">
+                                        <div className="message-header">
+                                            <span className="message-role">Error</span>
+                                        </div>
+                                        <div className="message-content">{error}</div>
+                                    </div>
+                                )}
+                                <div ref={messagesEndRef} />
+                            </div>
+                        </div>
+
+                        {loading && !autoScrollEnabled && (
+                            <div className="auto-scroll-chip-row">
+                                <button
+                                    type="button"
+                                    className="auto-scroll-chip"
+                                    onClick={handleJumpToLatest}
+                                >
+                                    Auto-scroll paused · Jump to latest
+                                </button>
+                            </div>
+                        )}
+
+                        <div className="input-area">
+                            <form onSubmit={handleSubmit} className="input-form">
+                                <textarea
+                                    ref={inputRef}
+                                    value={input}
+                                    onChange={(e) => setInput(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' && !e.shiftKey) {
+                                            e.preventDefault()
+                                            handleSubmit(e as unknown as React.FormEvent)
+                                        }
+                                    }}
+                                    placeholder="Ask about HAL, Vault, Terraform, or audits... (Enter to send, Shift+Enter for new line)"
+                                    disabled={loading}
+                                    rows={3}
+                                />
+                                <div className="button-group">
+                                    <button type="submit" disabled={loading || !input.trim()} className="button-primary">
+                                        {loading ? 'Sending...' : 'Send'}
+                                    </button>
+                                    <button type="button" onClick={handleClearHistory} disabled={loading} className="button-secondary">
+                                        Clear History
                                     </button>
                                 </div>
-                            )}
-
-                            <div className="input-area">
-                                <form onSubmit={handleSubmit} className="input-form">
-                                    <textarea
-                                        ref={inputRef}
-                                        value={input}
-                                        onChange={(e) => setInput(e.target.value)}
-                                        onKeyDown={(e) => {
-                                            if (e.key === 'Enter' && !e.shiftKey) {
-                                                e.preventDefault()
-                                                handleSubmit(e as unknown as React.FormEvent)
-                                            }
-                                        }}
-                                        placeholder="Ask me about Vault... (Press Enter to send, Shift+Enter for new line)"
-                                        disabled={loading}
-                                        rows={3}
-                                    />
-                                    <div className="button-group">
-                                        <button type="submit" disabled={loading || !input.trim()} className="button-primary">
-                                            {loading ? 'Sending...' : 'Send'}
-                                        </button>
-                                        <button type="button" onClick={handleClearHistory} disabled={loading} className="button-secondary">
-                                            Clear History
-                                        </button>
-                                    </div>
-                                </form>
-                            </div>
+                            </form>
                         </div>
                     </div>
-                ) : (
-                    <>
-                        <div className="chat-container">
-                            {messages.length === 0 && (
-                                <div className="unauthenticated-image-container">
-                                    <img src="/vault-lens.png" alt="VaultLens" className="vault-lens-image" />
-                                </div>
-                            )}
-                        </div>
-                        <div className="input-area">
-                            <div className="unauthenticated-message">
-                                <p>Please authenticate to begin.</p>
-                            </div>
-                        </div>
-                    </>
-                )}
+                </div>
+
+                </div>
+
+                </div>
 
             </div>
-
-
-            {/* Pass handleUnauthenticatedViewReady to AuthStatus in the sidebar */}
-            <DocumentationSidebar
-                sessionId={sessionId.current}
-                authenticated={authenticated}
-                onLogout={handleLogout}
-                onAuthLoadingChange={handleAuthLoadingChange}
-                onUnauthenticatedViewReady={handleUnauthenticatedViewReady}
-            />
-
-            {authenticated && <TokenUsage tokenCount={tokenCount} />}
         </>
     )
 }

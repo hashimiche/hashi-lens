@@ -1,6 +1,6 @@
-# VaultLens
+# Hashi Lens
 
-VaultLens is a full-stack TypeScript app for interacting with HashiCorp Vault using an LLM agent. It combines:
+Hashi Lens is a full-stack TypeScript app for interacting with HashiCorp infrastructure using an Ollama-powered agent. It combines:
 
 - Vault audit analysis (via [`vault-mcp-server`](https://github.com/czembower/vault-mcp-server/tree/split-upstream-changes))
 - Vault operational queries/actions (via [`vault-audit-mcp`](https://github.com/czembower/vault-audit-mcp))
@@ -22,7 +22,7 @@ This provides a natural language interface to reconcile Vault configuration agai
 
 - Frontend: React 18 + Vite
 - Backend: Express + TypeScript (`tsx` in dev)
-- LLM providers: Anthropic and OpenAI (selectable)
+- LLM provider: Ollama (local)
 - MCP integration: stdio child-process clients for both MCP servers
 
 ## Architecture
@@ -42,7 +42,7 @@ This provides a natural language interface to reconcile Vault configuration agai
   - `vault-mcp-server`
 - Vault cluster accessible from the backend
 - Loki if you use audit queries (see the `vault-audit-mcp` project for details)
-- API key for selected LLM provider
+- Local Ollama runtime
 
 Note that `vault-audit-mcp` and `vault-mcp-server` should be sourced from https://github.com/czembower?tab=repositories
 
@@ -64,18 +64,59 @@ cp .env.example .env
 
 ## Environment Variables
 
-- `LLM_PROVIDER`: `anthropic` (default) or `openai`
-- `ANTHROPIC_API_KEY`: required when `LLM_PROVIDER=anthropic`
-- `OPENAI_API_KEY`: required when `LLM_PROVIDER=openai`
-- `OPENAI_MODEL`: OpenAI model name (runtime default: `gpt-5.2`)
+- `LLM_PROVIDER`: `ollama`
+- `OLLAMA_BASE_URL`: Ollama OpenAI-compatible endpoint (default `http://ollama.localhost:11434/v1`)
+- `OLLAMA_MODEL`: local model name served by Ollama (default `qwen2.5:7b`)
+- `OLLAMA_API_KEY`: optional placeholder value for client auth (default `ollama`)
 - `VAULT_AUDIT_MCP_COMMAND`: command/path for audit MCP server (default `./vault-audit-mcp`)
 - `VAULT_MCP_COMMAND`: command/path for Vault MCP server (default `./vault-mcp-server`)
-- `LOKI_URL`: passed to `vault-audit-mcp` (default `http://localhost:3100`)
-- `API_PORT`: backend port (default `3001`)
-- `VITE_PORT`: frontend dev port (default `5173`)
+- `HAL_MCP_COMMAND`: command/path for HAL MCP server (default `${HOME}/.hal/bin/hal-mcp`)
+- `TERRAFORM_MCP_COMMAND`: command/path for Terraform MCP server
+- `CONSUL_MCP_COMMAND`: command/path for Consul MCP server
+- `NOMAD_MCP_COMMAND`: command/path for Nomad MCP server
+- `BOUNDARY_MCP_COMMAND`: command/path for Boundary MCP server
+- `TFE_MCP_COMMAND`: command/path for Terraform Enterprise MCP server
+- `LOKI_URL`: passed to `vault-audit-mcp` (default `http://loki.localhost:3100`)
+- `API_PORT`: backend port (default `9001`)
+- `VITE_PORT`: frontend dev port (default `9000`)
+- `VITE_HOSTNAME`: frontend host label (default `hal.localhost`)
 - `VAULT_OIDC_REDIRECT_URI`: OIDC callback URL (default `http://localhost:8250/oidc/callback`)
+- `VAULT_ADDR`: optional bootstrap Vault endpoint for local/sandbox mode
+- `VAULT_TOKEN`: optional bootstrap token for local/sandbox mode
+- `VAULT_SKIP_VERIFY`: optional TLS verify toggle (`true`/`false`) for local cert setups
 
 Notes: MCP servers are started as local processes via stdio, not HTTP URLs.
+
+If you prefer not to use the UI "connect" flow in local sandbox mode, set `VAULT_ADDR` (and optionally `VAULT_TOKEN`) in `.env`. Hashi Lens will bootstrap Vault context from these values at startup.
+
+### Ollama Quick Start (no cloud API key)
+
+1. Install and start Ollama.
+2. Pull a model that supports your workflow, for example:
+
+```bash
+ollama pull qwen2.5:7b
+```
+
+3. Configure `.env`:
+
+```bash
+LLM_PROVIDER=ollama
+OLLAMA_BASE_URL=http://127.0.0.1:11434/v1
+OLLAMA_MODEL=qwen2.5:7b
+
+# optional but recommended for visual troubleshooting
+LOKI_URL=http://loki.localhost:3100
+```
+
+If you see `model not found` errors in chat:
+
+```bash
+curl http://127.0.0.1:11434/api/tags
+ollama pull qwen2.5:7b
+```
+
+Then restart Hashi Lens.
 
 ## Development
 
@@ -85,8 +126,8 @@ Run frontend and backend together:
 npm run dev
 ```
 
-- Backend: `http://localhost:3001` (or `API_PORT`)
-- Frontend: `http://localhost:5173` (or `VITE_PORT`)
+- Backend: `http://localhost:9001` (or `API_PORT`)
+- Frontend: `http://hal.localhost:9000` (or `VITE_HOSTNAME` + `VITE_PORT`)
 
 The frontend proxies `/api` to the backend.
 
@@ -128,7 +169,7 @@ Session behavior:
 
 ## Authentication
 
-VaultLens supports:
+Hashi Lens supports:
 
 - OIDC login flow (popup + local callback)
 - Direct token-based login
@@ -191,6 +232,7 @@ This section consolidates critical content that previously lived in:
 - Ensure binaries are present and executable:
   - `VAULT_AUDIT_MCP_COMMAND`
   - `VAULT_MCP_COMMAND`
+  - `HAL_MCP_COMMAND` (defaults to `${HOME}/.hal/bin/hal-mcp`)
 - Typical verification:
 
 ```bash
@@ -202,18 +244,15 @@ This section consolidates critical content that previously lived in:
   - `EACCES` or permission denied -> `chmod +x <binary>`
   - command not found / startup timeout -> fix command path in `.env`
 
-### LLM Provider Switching
+### LLM Runtime
 
-- `LLM_PROVIDER=anthropic` or `LLM_PROVIDER=openai`
-- Required key must be present for selected provider:
-  - `ANTHROPIC_API_KEY`
-  - `OPENAI_API_KEY`
-- Restart server after switching provider.
-- The API/UI behavior is provider-agnostic; provider-specific logic stays in `src/server/llm/*`.
+- Hashi Lens is configured for `LLM_PROVIDER=ollama`.
+- Ensure your selected `OLLAMA_MODEL` is available in local Ollama.
+- Restart server after model changes.
 
 ### Token and Large-Result Strategy
 
-VaultLens expects summarized audit payloads for high-volume queries to avoid token overflow:
+Hashi Lens expects summarized audit payloads for high-volume queries to avoid token overflow:
 
 - Large audit result sets should be reduced to summary statistics + small representative samples.
 - Follow-up narrowing queries (namespace/status/path/time) are preferred over returning raw bulk events.

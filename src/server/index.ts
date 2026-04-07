@@ -1,6 +1,10 @@
 import express, { Request, Response } from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
+import { access } from 'fs/promises'
+import { constants as fsConstants } from 'fs'
 import { createLLMService } from './llm-factory.js'
 import { ExecutionEngine } from './execution-engine.js'
 import { VaultAuthManager } from './auth/manager.js'
@@ -8,7 +12,24 @@ import { VaultAuthManager } from './auth/manager.js'
 dotenv.config()
 
 const app = express()
-const port = process.env.API_PORT || 3001
+const port = process.env.API_PORT || 9001
+const uiHostname = process.env.VITE_HOSTNAME || 'hal.localhost'
+const uiPort = process.env.VITE_PORT || 9000
+const lokiUrl = process.env.LOKI_URL || 'http://loki.localhost:3100'
+const ollamaBaseUrl = process.env.OLLAMA_BASE_URL || 'http://ollama.localhost:11434/v1'
+const ollamaModel = process.env.OLLAMA_MODEL || 'qwen2.5:7b'
+const halCommand = process.env.HAL_COMMAND || 'hal'
+const halMcpCommand = process.env.HAL_MCP_COMMAND || `${process.env.HOME || ''}/.hal/bin/hal-mcp`
+const execFileAsync = promisify(execFile)
+
+async function isExecutablePath(path: string): Promise<boolean> {
+    try {
+        await access(path, fsConstants.X_OK)
+        return true
+    } catch (_error) {
+        return false
+    }
+}
 
 // Middleware
 app.use(cors())
@@ -36,14 +57,14 @@ function estimateTokenCount(agent: any): { total: number; messages: number; maxC
         charCount += (msg.content || '').length
     }
 
-    // Add system prompt estimate (~3000 chars based on the prompt in openai.ts)
+    // Add system prompt estimate (~3000 chars)
     charCount += 3000
 
     // Rough conversion: 4 chars ≈ 1 token
     const estimatedTokens = Math.ceil(charCount / 4)
 
-    // Context limits for common models
-    const maxContext = process.env.LLM_PROVIDER === 'openai' ? 128000 : 200000
+    // Default context estimate for local Ollama models
+    const maxContext = 32768
 
     return {
         total: estimatedTokens,
@@ -120,7 +141,7 @@ function getSession(sessionId: string): SessionData {
                 id: activity.activityId || `act-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                 timestamp,
                 type: activity.type,
-                toolType: activity.toolType as 'vault' | 'audit' | 'system' | undefined,
+                toolType: activity.toolType as 'vault' | 'audit' | 'hal' | 'system' | undefined,
                 toolName: activity.toolName,
                 description: activity.description,
                 status: activity.status as 'running' | 'success' | 'error' | undefined,
@@ -157,6 +178,147 @@ function getSessionId(req: Request): string {
     return req.headers['x-session-id'] as string || 'default'
 }
 
+async function isLokiReady(baseUrl: string): Promise<boolean> {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 1200)
+    try {
+        const readyUrl = baseUrl.endsWith('/ready') ? baseUrl : `${baseUrl.replace(/\/$/, '')}/ready`
+        const response = await fetch(readyUrl, { signal: controller.signal })
+        return response.ok
+    } catch (_error) {
+        return false
+    } finally {
+        clearTimeout(timeout)
+    }
+}
+
+function stripAnsi(text: string): string {
+    return text.replace(/\x1B\[[0-9;]*m/g, '')
+}
+
+interface HalFeatureStatus {
+    name: string
+    status: 'enabled' | 'disabled' | 'unknown'
+    details?: string
+}
+
+interface HalProductStatus {
+    name: string
+    state: 'running' | 'not-deployed'
+    endpoint: string
+    version: string
+    features: HalFeatureStatus[]
+}
+
+async function getHalStatus(): Promise<{ products: HalProductStatus[]; raw: string; error?: string }> {
+    try {
+        const { stdout } = await execFileAsync(halCommand, ['status'], {
+            env: { ...process.env, NO_COLOR: '1' },
+            timeout: 8000,
+            maxBuffer: 1024 * 1024,
+        })
+
+        const output = stripAnsi(stdout)
+        const lines = output.split('\n').map((line) => line.trimEnd())
+        const products: HalProductStatus[] = []
+        let current: HalProductStatus | null = null
+
+        for (const rawLine of lines) {
+            const line = rawLine.trim()
+            if (!line) continue
+
+            const productMatch = line.match(/^(⚪|🟢)\s+(.+?)\s+(Not Deployed|Running)\s{2,}(.+?)\s{2,}(.+)$/i)
+            if (productMatch) {
+                const icon = productMatch[1]
+                const name = productMatch[2].trim()
+                const stateText = productMatch[3].trim().toLowerCase()
+                const endpoint = productMatch[4].trim()
+                const version = productMatch[5].trim()
+
+                current = {
+                    name,
+                    state: icon === '🟢' || stateText.includes('running') ? 'running' : 'not-deployed',
+                    endpoint,
+                    version,
+                    features: [],
+                }
+                products.push(current)
+                continue
+            }
+
+            const featureMatch = line.match(/^↳\s+([^\s]+)\s*(.*)$/)
+            if (featureMatch && current) {
+                const featureName = featureMatch[1].trim()
+                const details = (featureMatch[2] || '').trim()
+                const normalized = details.toLowerCase()
+                const status: HalFeatureStatus['status'] = normalized.includes('enabled')
+                    ? 'enabled'
+                    : normalized.includes('disabled')
+                        ? 'disabled'
+                        : 'unknown'
+
+                current.features.push({ name: featureName, status, details })
+            }
+        }
+
+        for (const product of products) {
+            if (product.name.toLowerCase() === 'tfe') {
+                const hasWorkspace = product.features.some(
+                    (feature) => feature.name.toLowerCase() === 'workspace'
+                )
+                if (!hasWorkspace) {
+                    product.features.push({
+                        name: 'workspace',
+                        status: product.state === 'running' ? 'enabled' : 'disabled',
+                        details: product.state === 'running' ? 'enabled' : 'disabled',
+                    })
+                }
+            }
+        }
+
+        return { products, raw: output }
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Failed to execute hal status'
+        return { products: [], raw: '', error: errorMessage }
+    }
+}
+
+async function getOllamaStatus(baseUrl: string, model: string): Promise<{
+    url: string
+    model: string
+    reachable: boolean
+    installed: boolean
+    availableModels: string[]
+}> {
+    const tagsUrl = `${baseUrl.replace(/\/v1\/?$/, '')}/api/tags`
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 1500)
+
+    try {
+        const response = await fetch(tagsUrl, { signal: controller.signal })
+        if (!response.ok) {
+            return { url: baseUrl, model, reachable: false, installed: false, availableModels: [] }
+        }
+
+        const data = await response.json() as { models?: Array<{ name?: string }> }
+        const models = (data.models || [])
+            .map((m) => m?.name)
+            .filter((m): m is string => !!m)
+
+        return {
+            url: baseUrl,
+            model,
+            reachable: true,
+            installed: models.includes(model),
+            availableModels: models,
+        }
+    } catch (_error) {
+        return { url: baseUrl, model, reachable: false, installed: false, availableModels: [] }
+    } finally {
+        clearTimeout(timeout)
+    }
+}
+
 // Clean up expired sessions periodically
 setInterval(() => {
     const now = Date.now()
@@ -173,7 +335,7 @@ interface Activity {
     id: string
     type: 'tool_call' | 'thinking' | 'result'
     timestamp: string
-    toolType?: 'vault' | 'audit' | 'system'
+    toolType?: 'vault' | 'audit' | 'hal' | 'system'
     toolName?: string
     description?: string
     status?: 'running' | 'success' | 'error'
@@ -198,6 +360,43 @@ const MAX_SUGGESTIONS = 6 // Keep only the 6 most recent suggestions
 // Health check
 app.get('/health', (_req: Request, res: Response) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() })
+})
+
+app.get('/runtime-info', async (_req: Request, res: Response) => {
+    const lokiReady = await isLokiReady(lokiUrl)
+    const ollama = await getOllamaStatus(ollamaBaseUrl, ollamaModel)
+    const halMcpExecutable = await isExecutablePath(halMcpCommand)
+
+    res.json({
+        ui: {
+            url: `http://${uiHostname}:${uiPort}`,
+        },
+        loki: {
+            url: lokiUrl,
+            ready: lokiReady,
+            hint: lokiReady ? null : 'Run "hal obs deploy" if Loki is not up yet.',
+        },
+        ollama: {
+            ...ollama,
+            hint: !ollama.reachable
+                ? 'Start Ollama and verify OLLAMA_BASE_URL.'
+                : !ollama.installed
+                    ? `Model ${ollama.model} is not installed. Run: ollama pull ${ollama.model}`
+                    : null,
+        },
+        halMcp: {
+            command: halMcpCommand,
+            executable: halMcpExecutable,
+            hint: halMcpExecutable
+                ? null
+                : 'Set HAL_MCP_COMMAND to an executable hal-mcp binary (for example ~/.hal/bin/hal-mcp).',
+        },
+    })
+})
+
+app.get('/hal/status', async (_req: Request, res: Response) => {
+    const status = await getHalStatus()
+    res.json(status)
 })
 
 // Query endpoint - accepts natural language queries and executes them via the agent
@@ -505,7 +704,7 @@ app.post('/auth/logout', async (_req: Request, res: Response) => {
 
 // Start server
 app.listen(port, () => {
-    console.log(`🔍 VaultLens API listening on port ${port}`)
+    console.log(`🔍 Hashi Lens API listening on port ${port}`)
     console.log(`Available endpoints:`)
     console.log(`  POST /query - Execute a query via the agent`)
     console.log(`  GET /history - Retrieve query history`)
@@ -515,5 +714,5 @@ app.listen(port, () => {
     console.log(`  POST /auth/switch-cluster - Switch to different Vault cluster`)
     console.log(`  POST /auth/logout - Clear cached token`)
     console.log(``)
-    console.log(`🌐 Frontend available at: http://localhost:${process.env.VITE_PORT || 5173}`)
+    console.log(`🌐 Frontend available at: http://${uiHostname}:${uiPort}`)
 })

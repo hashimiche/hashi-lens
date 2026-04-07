@@ -1,3 +1,4 @@
+import { useCallback, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -17,6 +18,41 @@ interface MarkdownTextProps {
  * No normalization is applied - content is rendered as the LLM generates it.
  */
 export function MarkdownText({ content }: MarkdownTextProps) {
+    const [copiedCode, setCopiedCode] = useState<string | null>(null)
+
+    const extractCodeString = (children: unknown): string => {
+        if (typeof children === 'string') return children
+        if (Array.isArray(children)) {
+            return children
+                .map((child) => {
+                    if (typeof child === 'string') return child
+                    if (child && typeof child === 'object' && 'props' in child) {
+                        const node = child as { props?: { children?: unknown } }
+                        return extractCodeString(node.props?.children)
+                    }
+                    return ''
+                })
+                .join('')
+        }
+        if (children && typeof children === 'object' && 'props' in children) {
+            const node = children as { props?: { children?: unknown } }
+            return extractCodeString(node.props?.children)
+        }
+        return ''
+    }
+
+    const handleCopyCode = useCallback(async (rawCode: string) => {
+        const text = rawCode.replace(/\n$/, '')
+
+        try {
+            await navigator.clipboard.writeText(text)
+            setCopiedCode(text)
+            setTimeout(() => setCopiedCode((current) => (current === text ? null : current)), 1400)
+        } catch (error) {
+            console.error('Failed to copy code block:', error)
+        }
+    }, [])
+
     // Log raw markdown content for debugging
     console.log('[MarkdownText] Raw content:')
     console.log('='.repeat(80))
@@ -72,18 +108,26 @@ export function MarkdownText({ content }: MarkdownTextProps) {
                         return <code className="inline-code" {...props}>{children}</code>
                     }
 
-                    // Only use <pre> wrapper for actual multi-line code blocks
+                    return <code className={className} {...props}>{children}</code>
+                },
+                pre: ({ children, ...props }) => {
+                    const codeContent = extractCodeString(children)
+                    const isCopied = copiedCode === codeContent.replace(/\n$/, '')
+
                     return (
-                        <pre style={{
-                            backgroundColor: 'var(--bg-secondary)',
-                            padding: '1rem',
-                            borderRadius: '6px',
-                            overflow: 'auto',
-                            marginTop: '0.5rem',
-                            marginBottom: '0.5rem',
-                        }}>
-                            <code className={className} {...props}>{children}</code>
-                        </pre>
+                        <div className="code-block-wrapper">
+                            <button
+                                type="button"
+                                className="code-copy-button"
+                                onClick={() => void handleCopyCode(codeContent)}
+                                aria-label="Copy code block"
+                            >
+                                {isCopied ? 'Copied' : 'Copy'}
+                            </button>
+                            <pre className="code-block" {...props}>
+                                {children}
+                            </pre>
+                        </div>
                     )
                 },
                 // Style links

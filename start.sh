@@ -1,13 +1,13 @@
 #!/bin/bash
-# Quick start script for VaultLens
-# Requirements: Node.js 18+, npm, and a Claude API key
+# Quick start script for Hashi Lens
+# Requirements: Node.js 18+, npm, and a local Ollama runtime
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-echo "🚀 VaultLens Quick Start"
+echo "🚀 Hashi Lens Quick Start"
 echo "=============================="
 echo ""
 
@@ -39,13 +39,13 @@ if [ ! -f ".env" ]; then
     echo "📝 Setting up environment variables..."
     cp .env.example .env
     echo ""
-    echo "⚠️  Please edit .env and add your ANTHROPIC_API_KEY:"
+    echo "⚠️  Please edit .env for your local setup:"
     echo "   nano .env"
     echo ""
     echo "   You'll need to add:"
-    echo "   - ANTHROPIC_API_KEY=sk_... (from https://console.anthropic.com)"
-    echo "   - VAULT_MCP_URL (where your Vault MCP server is running)"
-    echo "   - VAULT_AUDIT_MCP_URL (where your audit server is)"
+    echo "   - OLLAMA_MODEL=... (model available in your local Ollama)"
+    echo "   - VAULT_MCP_COMMAND=..."
+    echo "   - VAULT_AUDIT_MCP_COMMAND=..."
     echo ""
     exit 1
 fi
@@ -55,30 +55,53 @@ set +e
 source .env 2>/dev/null
 set -e
 
-# Determine which LLM provider is configured
-LLM_PROVIDER=$(echo "${LLM_PROVIDER:-anthropic}" | tr '[:upper:]' '[:lower:]')
+if [ -z "$HAL_MCP_COMMAND" ]; then
+    HAL_MCP_COMMAND="$HOME/.hal/bin/hal-mcp"
+fi
 
-if [ "$LLM_PROVIDER" = "openai" ]; then
-    if [ -z "$OPENAI_API_KEY" ] || [[ ! "$OPENAI_API_KEY" == sk-* ]]; then
-        echo "❌ OPENAI_API_KEY not set in .env"
-        echo "   Please edit .env and add your OpenAI API key"
+if [[ "$HAL_MCP_COMMAND" == */* ]]; then
+    if [ ! -x "$HAL_MCP_COMMAND" ]; then
+        echo "❌ HAL MCP command is not executable: $HAL_MCP_COMMAND"
+        echo "   Set HAL_MCP_COMMAND in .env to a valid hal-mcp binary path"
         exit 1
     fi
-    echo "✅ OpenAI API key configured"
-elif [ "$LLM_PROVIDER" = "anthropic" ]; then
-    if [ -z "$ANTHROPIC_API_KEY" ] || [[ ! "$ANTHROPIC_API_KEY" == sk* ]]; then
-        echo "❌ ANTHROPIC_API_KEY not set in .env"
-        echo "   Please edit .env and add your Anthropic API key"
-        exit 1
-    fi
-    echo "✅ Anthropic API key configured"
 else
+    if ! command -v "$HAL_MCP_COMMAND" >/dev/null 2>&1; then
+        echo "❌ HAL MCP command not found in PATH: $HAL_MCP_COMMAND"
+        echo "   Set HAL_MCP_COMMAND in .env to a valid hal-mcp command or absolute path"
+        exit 1
+    fi
+fi
+
+echo "✅ HAL MCP command detected: $HAL_MCP_COMMAND"
+
+# Determine which LLM provider is configured
+LLM_PROVIDER=$(echo "${LLM_PROVIDER:-ollama}" | tr '[:upper:]' '[:lower:]')
+
+if [ "$LLM_PROVIDER" != "ollama" ]; then
     echo "❌ Unknown LLM_PROVIDER '$LLM_PROVIDER' in .env"
-    echo "   Supported values: anthropic, openai"
+    echo "   Supported values: ollama"
     exit 1
 fi
 
-echo "✅ Environment variables configured"
+if [ -z "$OLLAMA_BASE_URL" ]; then
+    echo "❌ OLLAMA_BASE_URL not set in .env"
+    exit 1
+fi
+
+if [ -z "$OLLAMA_MODEL" ]; then
+    echo "❌ OLLAMA_MODEL not set in .env"
+    exit 1
+fi
+
+OLLAMA_PROBE_URL="${OLLAMA_BASE_URL%/v1}/api/tags"
+if ! curl -fsS "$OLLAMA_PROBE_URL" >/dev/null 2>&1; then
+    echo "❌ Unable to reach Ollama at ${OLLAMA_BASE_URL}"
+    echo "   Start Ollama first, or update OLLAMA_BASE_URL in .env"
+    exit 1
+fi
+
+echo "✅ Ollama configuration detected"
 echo ""
 
 # Install dependencies
@@ -98,10 +121,14 @@ echo "✅ Type check passed"
 echo ""
 
 # Start servers
-echo "🎯 Starting VaultLens..."
+API_PORT_DISPLAY="${API_PORT:-9001}"
+VITE_PORT_DISPLAY="${VITE_PORT:-9000}"
+VITE_HOSTNAME_DISPLAY="${VITE_HOSTNAME:-hal.localhost}"
+
+echo "🎯 Starting Hashi Lens..."
 echo ""
-echo "📍 Frontend:  http://localhost:3000"
-echo "📍 Backend:   http://localhost:3001"
+echo "📍 Frontend:  http://${VITE_HOSTNAME_DISPLAY}:${VITE_PORT_DISPLAY}"
+echo "📍 Backend:   http://localhost:${API_PORT_DISPLAY}"
 echo ""
 echo "Press Ctrl+C to stop"
 echo ""
