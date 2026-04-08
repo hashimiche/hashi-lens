@@ -8,7 +8,7 @@ import { ExecutionEngine } from '../execution-engine.js'
 import { OpenAILLMService } from './openai.js'
 
 const DEFAULT_OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://ollama.localhost:11434/v1'
-const DEFAULT_OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen2.5:7b'
+const DEFAULT_OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'gemma4:latest'
 
 export class OllamaLLMService extends OpenAILLMService {
     constructor(executionEngine: ExecutionEngine) {

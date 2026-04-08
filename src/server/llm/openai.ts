@@ -1275,12 +1275,17 @@ export class OpenAILLMService extends BaseLLMService {
 
         const primaryProduct = query ? this.detectPrimaryProductWithHistory(query) : null
 
+        const isJwtActivityQuery =
+            !!query &&
+            /\bjwt\b/i.test(query) &&
+            /\bactivity\b|\baudit\b|\bevents?\b|\blogin\b|\btraffic\b|\brequests?\b/.test(query.toLowerCase())
+
         const hasKnownBadJwtCommand =
             /hal\s+vault\s+auth\s+enable\s+jwt/i.test(cleaned) ||
             /--identity-provider-url/i.test(cleaned) ||
             /--jwt-identity-name/i.test(cleaned)
 
-        if (hasKnownBadJwtCommand) {
+        if (hasKnownBadJwtCommand && !isJwtActivityQuery) {
             cleaned = [
                 'Use the verified HAL JWT helper command:',
                 '',
@@ -1291,7 +1296,7 @@ export class OpenAILLMService extends BaseLLMService {
         }
 
         const isJwtQuery = !!query && /\bjwt\b/i.test(query)
-        if (isJwtQuery) {
+        if (isJwtQuery && !isJwtActivityQuery) {
             const hasNonCanonicalJwtHalCommand =
                 /hal\s+vault_jwt\s+deploy/i.test(cleaned) ||
                 /hal\s+vault\s+auth\s+enable\s+jwt/i.test(cleaned)
@@ -1350,12 +1355,12 @@ export class OpenAILLMService extends BaseLLMService {
             cleaned = this.buildProductAccessResponse(primaryProduct, toolResults || [], cleaned)
         }
 
-        if (!isProductAccessQuery && nonVaultFeatureIntent && primaryProduct && primaryProduct.id !== 'vault') {
-            cleaned = this.buildNonVaultFeatureScenarioResponse(primaryProduct, nonVaultFeatureIntent, toolResults || [], cleaned)
+        if (!isProductAccessQuery && observabilityIncidentIntent && primaryProduct && primaryProduct.halName === 'obs') {
+            cleaned = this.buildObservabilityIncidentResponse(observabilityIncidentIntent, toolResults || [], cleaned, query || '')
         }
 
-        if (!isProductAccessQuery && !nonVaultFeatureIntent && observabilityIncidentIntent && primaryProduct && primaryProduct.halName === 'obs') {
-            cleaned = this.buildObservabilityIncidentResponse(observabilityIncidentIntent, toolResults || [], cleaned)
+        if (!isProductAccessQuery && nonVaultFeatureIntent && primaryProduct && primaryProduct.id !== 'vault' && !(primaryProduct.halName === 'obs' && observabilityIncidentIntent)) {
+            cleaned = this.buildNonVaultFeatureScenarioResponse(primaryProduct, nonVaultFeatureIntent, toolResults || [], cleaned, query || '')
         }
 
         if (!isProductAccessQuery && !nonVaultFeatureIntent && !observabilityIncidentIntent && isProductTroubleshootingQuery && primaryProduct && primaryProduct.id !== 'vault') {
@@ -1375,7 +1380,7 @@ export class OpenAILLMService extends BaseLLMService {
         }
 
         if (vaultFeatureIntent) {
-            cleaned = this.buildVaultFeatureScenarioResponse(vaultFeatureIntent, toolResults || [], cleaned)
+            cleaned = this.buildVaultFeatureScenarioResponse(vaultFeatureIntent, toolResults || [], cleaned, query || '')
         }
 
         if (isReplicationHealthQuery) {
@@ -1386,12 +1391,32 @@ export class OpenAILLMService extends BaseLLMService {
             cleaned = this.buildLeaseActivityResponse(toolResults || [], cleaned)
         }
 
+        if (isJwtActivityQuery) {
+            cleaned = this.buildJwtActivityAuditResponse(toolResults || [], cleaned)
+        }
+
         if (!isProductTestingQuery && !isProductSetupQuery && !isProductAccessQuery && !nonVaultFeatureIntent && !observabilityIncidentIntent && !isProductTroubleshootingQuery && !isAuthMethodsQuery && !isVaultAuthTroubleshootingQuery && !vaultFeatureIntent && !isReplicationHealthQuery && !isLeaseActivityQuery && query && /what can you tell me about.*vault|tell me about.*vault|vault instance|vault status|health of vault|vault health/i.test(query)) {
             cleaned = this.buildVaultOverviewResponse(toolResults || [], cleaned)
         }
 
         if (query && /\boidc\b/.test(query.toLowerCase()) && /next steps|idp|identity provider/.test(query.toLowerCase())) {
             cleaned = this.buildOidcNextStepsResponse(toolResults || [], cleaned)
+        }
+
+        if (query && /\bjwt\b/i.test(query) && cleaned.trim().length === 0) {
+            cleaned = [
+                'Use the verified HAL JWT enable command:',
+                '',
+                '```bash',
+                'hal vault jwt -e',
+                '```',
+                '',
+                'Then verify Vault feature status:',
+                '',
+                '```bash',
+                'hal vault status',
+                '```',
+            ].join('\n')
         }
 
         return cleaned
@@ -1582,6 +1607,113 @@ export class OpenAILLMService extends BaseLLMService {
 
         const assembled = this.removeEmptyCodeBlocks(lines.join('\n'))
         return assembled.length > 0 ? assembled : fallbackText
+    }
+
+    private buildJwtActivityAuditResponse(toolResults: ToolResult[], fallbackText: string): string {
+        const auditByJwt = toolResults.filter(
+            (result) =>
+                result.type === 'audit' &&
+                (result.tool === 'audit.aggregate' || result.tool === 'audit.search_events') &&
+                typeof result.result !== 'undefined'
+        )
+
+        const aggregateJwt = toolResults.find(
+            (result) =>
+                result.type === 'audit' &&
+                result.tool === 'audit.aggregate' &&
+                this.toolResultMentions(result, 'jwt')
+        )
+
+        const searchJwt = toolResults.find(
+            (result) =>
+                result.type === 'audit' &&
+                result.tool === 'audit.search_events' &&
+                this.toolResultMentions(result, 'jwt')
+        )
+
+        const authClassSearch = toolResults.find(
+            (result) =>
+                result.type === 'audit' &&
+                result.tool === 'audit.search_events' &&
+                this.toolResultMentions(result, 'auth')
+        )
+
+        const lines: string[] = ['JWT Activity On Vault', '']
+
+        if (aggregateJwt?.success || searchJwt?.success) {
+            lines.push('Audit checks completed for `mount_type=jwt`.')
+            lines.push('')
+        }
+
+        if (searchJwt?.success) {
+            const count = this.extractAuditEventCount(searchJwt.result)
+            if (count !== null) {
+                lines.push(`- JWT events found: ${count}`)
+            } else {
+                lines.push('- JWT events found: see audit search results (count not explicitly provided by MCP payload).')
+            }
+        } else {
+            lines.push(`- JWT event search: failed (${searchJwt?.error || 'not available'})`)
+        }
+
+        if (aggregateJwt?.success) {
+            lines.push('- JWT aggregate by operation: available from audit aggregate output.')
+        } else {
+            lines.push(`- JWT aggregate by operation: failed (${aggregateJwt?.error || 'not available'})`)
+        }
+
+        if (authClassSearch?.success) {
+            lines.push('- Auth-class fallback search: available (useful if mount_type labels are sparse).')
+        }
+
+        lines.push('')
+        lines.push('Next checks (optional):')
+        lines.push('')
+        lines.push('```bash')
+        lines.push('hal vault status')
+        lines.push('```')
+
+        const assembled = this.removeEmptyCodeBlocks(lines.join('\n'))
+        return assembled.length > 0 ? assembled : (auditByJwt.length > 0 ? assembled : fallbackText)
+    }
+
+    private toolResultMentions(result: ToolResult, token: string): boolean {
+        if (!result.result) return false
+        if (typeof result.result === 'string') return result.result.toLowerCase().includes(token.toLowerCase())
+
+        try {
+            return JSON.stringify(result.result).toLowerCase().includes(token.toLowerCase())
+        } catch (_error) {
+            return false
+        }
+    }
+
+    private extractAuditEventCount(payload: unknown): number | null {
+        let normalized: unknown = payload
+        if (typeof payload === 'string') {
+            try {
+                normalized = JSON.parse(payload)
+            } catch (_error) {
+                return null
+            }
+        }
+
+        if (Array.isArray(normalized)) {
+            return normalized.length
+        }
+
+        if (!normalized || typeof normalized !== 'object') {
+            return null
+        }
+
+        const obj = normalized as Record<string, unknown>
+        if (typeof obj.total === 'number') return obj.total
+        if (typeof obj.count === 'number') return obj.count
+        if (typeof obj.matched === 'number') return obj.matched
+        if (Array.isArray(obj.events)) return obj.events.length
+        if (Array.isArray(obj.data)) return obj.data.length
+
+        return null
     }
 
     private buildProductAccessResponse(
@@ -1866,13 +1998,38 @@ export class OpenAILLMService extends BaseLLMService {
     }
 
     private detectVaultFeatureIntent(query: string): VaultFeatureScenarioKey | null {
-        return detectVaultFeatureScenarioIntent(query)
+        const direct = detectVaultFeatureScenarioIntent(query)
+        if (direct) return direct
+
+        // Handle short follow-ups like "what will I have once this command is executed?"
+        if (!/\b(this|that|it|command|executed|execute|once|support|supported|csi|vso|operator)\b/i.test(query)) {
+            return null
+        }
+
+        let inspectedUserTurns = 0
+        for (let index = this.conversationHistory.length - 1; index >= 0; index -= 1) {
+            const entry = this.conversationHistory[index]
+            if (entry.role !== 'user') continue
+
+            const fromHistory = detectVaultFeatureScenarioIntent(entry.content)
+            if (fromHistory) {
+                return fromHistory
+            }
+
+            inspectedUserTurns += 1
+            if (inspectedUserTurns >= 8) {
+                break
+            }
+        }
+
+        return null
     }
 
     private buildVaultFeatureScenarioResponse(
         feature: VaultFeatureScenarioKey,
         toolResults: ToolResult[],
-        fallbackText: string
+        fallbackText: string,
+        query = ''
     ): string {
         const scenario = VAULT_FEATURE_SCENARIOS[feature]
         const verifiedHal = this.extractVerifiedHalCommands(toolResults)
@@ -1884,6 +2041,20 @@ export class OpenAILLMService extends BaseLLMService {
         const enableCommand =
             featureCommands.find((command) => /\s(-e|--enable)(\s|$)/.test(command))
             || `hal vault ${scenario.featureToken} -e`
+        const deployCommand = verifiedHal.find((command) => command === 'hal vault deploy') || 'hal vault deploy'
+        const vaultRunning = this.isVaultRuntimeRunning(toolResults)
+        const featureHelpRaw = this.extractHalHelpRaw(toolResults, scenario.helpTopic)
+
+        if (this.isLikelySupportQuestion(query) && scenario.supportChecks && scenario.supportChecks.length > 0) {
+            const relevantChecks = this.selectRelevantSupportChecks(scenario.supportChecks, query)
+            return this.buildVaultFeatureSupportResponse(
+                scenario.title,
+                relevantChecks,
+                featureHelpRaw,
+                helpCommand,
+                fallbackText
+            )
+        }
 
         const lines: string[] = [
             scenario.title,
@@ -1895,13 +2066,44 @@ export class OpenAILLMService extends BaseLLMService {
             '```bash',
             statusCommand,
             '```',
+        ]
+
+        if (vaultRunning === false) {
+            lines.push('')
+            lines.push('Vault is not running yet. Bring it up before enabling this integration:')
+            lines.push('')
+            lines.push('```bash')
+            lines.push(deployCommand)
+            lines.push(statusCommand)
+            lines.push('```')
+        }
+
+        lines.push(
             '',
             '2. List HAL capability surface from local help:',
             '',
             '```bash',
             helpCommand,
             '```',
-        ]
+        )
+
+        if (feature === 'k8s') {
+            lines.push('')
+            lines.push('Kubernetes scope with HAL:')
+            lines.push('')
+            lines.push('- Ensure Vault is up first. If not, run `hal vault deploy` before `hal vault k8s -e`.')
+            lines.push('- `hal vault k8s -e` is the HAL entry point for local Kubernetes + Vault integration testing.')
+        }
+
+        if (scenario.supportChecks && scenario.supportChecks.length > 0) {
+            lines.push('')
+            lines.push('HAL capability checks from local help output:')
+            lines.push('')
+            for (const check of scenario.supportChecks) {
+                const supported = check.pattern.test(featureHelpRaw)
+                lines.push(`- ${check.label}: ${supported ? check.positiveMessage : check.negativeMessage}`)
+            }
+        }
 
         if (featureCommands.length > 0) {
             lines.push('')
@@ -1928,10 +2130,109 @@ export class OpenAILLMService extends BaseLLMService {
         lines.push('```')
         lines.push('')
         lines.push('5. Troubleshoot failures by checking role constraints and audit events for the auth mount type.')
+
+        if (scenario.postEnableOutcomes && scenario.postEnableOutcomes.length > 0) {
+            lines.push('')
+            lines.push('6. What you get immediately after a successful enable:')
+            lines.push('')
+            for (const outcome of scenario.postEnableOutcomes) {
+                lines.push(`- ${outcome}`)
+            }
+        }
+
         lines.push('Relevant docs are added to the documentation panel when available.')
 
         const assembled = this.removeEmptyCodeBlocks(lines.join('\n'))
         return assembled.length > 0 ? assembled : fallbackText
+    }
+
+    private isLikelySupportQuestion(query: string): boolean {
+        if (!query) return false
+
+        const lower = query.toLowerCase().trim()
+        const asksSupport = /\b(can i|is it possible|possible|supported|support|available|does .* support|is .* supported)\b/.test(lower)
+        const asksForSetupFlow = /\b(configure|configuration|setup|set up|deploy|enable|how do i|how to|what will i have|next steps)\b/.test(lower)
+        const wordCount = lower.split(/\s+/).filter(Boolean).length
+
+        return asksSupport && !asksForSetupFlow && wordCount <= 18
+    }
+
+    private selectRelevantSupportChecks<
+        T extends {
+            queryPattern?: RegExp
+        }
+    >(checks: T[], query: string): T[] {
+        if (!query || checks.length === 0) return checks
+
+        const matched = checks.filter((check) => check.queryPattern && check.queryPattern.test(query.toLowerCase()))
+        return matched.length > 0 ? matched : checks
+    }
+
+    private buildVaultFeatureSupportResponse(
+        title: string,
+        supportChecks: NonNullable<(typeof VAULT_FEATURE_SCENARIOS)[VaultFeatureScenarioKey]['supportChecks']>,
+        featureHelpRaw: string,
+        helpCommand: string,
+        fallbackText: string
+    ): string {
+        const evaluations = supportChecks.map((check) => ({
+            label: check.label,
+            supported: check.pattern.test(featureHelpRaw),
+            message: check.pattern.test(featureHelpRaw) ? check.positiveMessage : check.negativeMessage,
+        }))
+
+        const supportedCount = evaluations.filter((item) => item.supported).length
+        let answer = 'Not confirmed.'
+        if (supportedCount === evaluations.length) {
+            answer = 'Yes.'
+        } else if (supportedCount > 0) {
+            answer = 'Partially.'
+        }
+
+        const lines: string[] = [
+            `${title} support check`,
+            '',
+            `Answer: ${answer}`,
+            '',
+            'Evidence from local HAL help output:',
+            '',
+        ]
+
+        for (const item of evaluations) {
+            lines.push(`- ${item.label}: ${item.message}`)
+        }
+
+        lines.push('')
+        lines.push('Next command:')
+        lines.push('')
+        lines.push('```bash')
+        lines.push(helpCommand)
+        lines.push('```')
+
+        const assembled = this.removeEmptyCodeBlocks(lines.join('\n'))
+        return assembled.length > 0 ? assembled : fallbackText
+    }
+
+    private isVaultRuntimeRunning(toolResults: ToolResult[]): boolean | null {
+        const halStatusResult = toolResults.find(
+            (result) => result.type === 'system' && result.tool === 'get_hal_status' && result.success
+        )
+
+        const halRaw = (halStatusResult?.result && typeof halStatusResult.result === 'object')
+            ? ((halStatusResult.result as { raw?: unknown }).raw)
+            : null
+
+        if (typeof halRaw !== 'string' || halRaw.length === 0) {
+            return null
+        }
+
+        for (const line of halRaw.split('\n')) {
+            const match = line.trim().match(/^(?:⚪|🟢)\s+Vault\s+(Not Deployed|Running)\s{2,}.+$/i)
+            if (!match) continue
+            return /running/i.test(match[1])
+        }
+
+        return null
     }
 
     private detectNonVaultFeatureIntent(
@@ -1959,7 +2260,8 @@ export class OpenAILLMService extends BaseLLMService {
         product: ProductDescriptor,
         featureIntent: NonVaultFeatureScenarioKey,
         toolResults: ToolResult[],
-        fallbackText: string
+        fallbackText: string,
+        query = ''
     ): string {
         const scenario = NON_VAULT_FEATURE_SCENARIOS[featureIntent]
         const verifiedHal = this.extractVerifiedHalCommands(toolResults)
@@ -1968,6 +2270,18 @@ export class OpenAILLMService extends BaseLLMService {
         const helpTopic = scenario.helpTopic
         const helpCommand = productCommands.find((command) => command.endsWith(' --help')) || `hal ${helpTopic} --help`
         const deployCommand = productCommands.find((command) => command === `hal ${product.halName} deploy`) || `hal ${product.halName} deploy`
+        const featureHelpRaw = this.extractHalHelpRaw(toolResults, scenario.helpTopic)
+
+        if (this.isLikelySupportQuestion(query) && scenario.supportChecks && scenario.supportChecks.length > 0) {
+            const relevantChecks = this.selectRelevantSupportChecks(scenario.supportChecks, query)
+            return this.buildGenericFeatureSupportResponse(
+                scenario.title,
+                relevantChecks,
+                featureHelpRaw,
+                helpCommand,
+                fallbackText
+            )
+        }
 
         const lines: string[] = [`${scenario.title}:`, '', scenario.description, '']
 
@@ -2018,6 +2332,59 @@ export class OpenAILLMService extends BaseLLMService {
 
         lines.push('')
         lines.push('Relevant product documentation has been added to the docs panel when available.')
+
+        const assembled = this.removeEmptyCodeBlocks(lines.join('\n'))
+        return assembled.length > 0 ? assembled : fallbackText
+    }
+
+    private buildGenericFeatureSupportResponse(
+        title: string,
+        supportChecks: Array<{
+            label: string
+            pattern: RegExp
+            positiveMessage: string
+            negativeMessage: string
+        }>,
+        featureHelpRaw: string,
+        helpCommand: string,
+        fallbackText: string
+    ): string {
+        const evaluations = supportChecks.map((check) => {
+            const supported = check.pattern.test(featureHelpRaw)
+            return {
+                label: check.label,
+                supported,
+                message: supported ? check.positiveMessage : check.negativeMessage,
+            }
+        })
+
+        const supportedCount = evaluations.filter((item) => item.supported).length
+        let answer = 'Not confirmed.'
+        if (supportedCount === evaluations.length) {
+            answer = 'Yes.'
+        } else if (supportedCount > 0) {
+            answer = 'Partially.'
+        }
+
+        const lines: string[] = [
+            `${title} support check`,
+            '',
+            `Answer: ${answer}`,
+            '',
+            'Evidence from local HAL help output:',
+            '',
+        ]
+
+        for (const item of evaluations) {
+            lines.push(`- ${item.label}: ${item.message}`)
+        }
+
+        lines.push('')
+        lines.push('Next command:')
+        lines.push('')
+        lines.push('```bash')
+        lines.push(helpCommand)
+        lines.push('```')
 
         const assembled = this.removeEmptyCodeBlocks(lines.join('\n'))
         return assembled.length > 0 ? assembled : fallbackText
@@ -2087,7 +2454,8 @@ export class OpenAILLMService extends BaseLLMService {
     private buildObservabilityIncidentResponse(
         incident: ObservabilityIncidentScenarioKey,
         toolResults: ToolResult[],
-        fallbackText: string
+        fallbackText: string,
+        query = ''
     ): string {
         const scenario = OBS_INCIDENT_SCENARIOS[incident]
         const verifiedHal = this.extractVerifiedHalCommands(toolResults)
@@ -2095,6 +2463,18 @@ export class OpenAILLMService extends BaseLLMService {
         const statusCommand = obsCommands.find((command) => command === 'hal obs status') || 'hal obs status'
         const helpCommand = obsCommands.find((command) => command === 'hal obs --help') || 'hal obs --help'
         const deployCommand = obsCommands.find((command) => command === 'hal obs deploy') || 'hal obs deploy'
+        const featureHelpRaw = this.extractHalHelpRaw(toolResults, 'obs')
+
+        if (this.isLikelySupportQuestion(query) && scenario.supportChecks && scenario.supportChecks.length > 0) {
+            const relevantChecks = this.selectRelevantSupportChecks(scenario.supportChecks, query)
+            return this.buildGenericFeatureSupportResponse(
+                scenario.title,
+                relevantChecks,
+                featureHelpRaw,
+                helpCommand,
+                fallbackText
+            )
+        }
 
         const lines: string[] = [scenario.title, '', scenario.description, '']
 
@@ -2532,6 +2912,7 @@ export class OpenAILLMService extends BaseLLMService {
         if (lower.includes('vault jwt') || lower.includes(' jwt')) return 'vault jwt'
         if (lower.includes('vault oidc') || lower.includes(' oidc')) return 'vault oidc'
         if (lower.includes('vault ldap') || lower.includes(' ldap')) return 'vault ldap'
+        if (/vault\s+secret(s)?\s+operator|secret(s)?\s+operator/.test(lower) || lower.includes('vso') || lower.includes('csi')) return 'vault k8s'
         if (lower.includes('vault k8s') || lower.includes(' kubernetes') || lower.includes(' k8s')) return 'vault k8s'
         if (lower.includes('boundary ssh') || (lower.includes('boundary') && /\bssh\b/.test(lower))) return 'boundary ssh'
         if (lower.includes('terraform workspace') || ((lower.includes('terraform') || lower.includes('tfe')) && /\bworkspace\b/.test(lower))) return 'terraform workspace'
@@ -2555,7 +2936,7 @@ export class OpenAILLMService extends BaseLLMService {
         const primaryProduct = this.detectPrimaryProductWithHistory(query)
         const hasVerifiedHal = this.extractVerifiedHalCommands(toolResults).length > 0
         const topic = this.detectHalHelpTopic(query)
-        const featureTopic = /\bjwt\b|\boidc\b|\bldap\b|\bk8s\b/.test(lower)
+        const featureTopic = /\bjwt\b|\boidc\b|\bldap\b|\bk8s\b|\bkubernetes\b|\bcsi\b|\bvso\b|secrets operator/.test(lower)
         const asksProductTesting = !!primaryProduct && isProductTestingIntent(query)
         const asksProductSetup = !!primaryProduct && isProductSetupIntent(query)
         const asksProductAccess =
@@ -2572,7 +2953,7 @@ export class OpenAILLMService extends BaseLLMService {
             (/datasource|data source|dashboard|panel|prometheus|loki|grafana|no data|empty|missing/.test(lower))
 
         const mentionsHalOrHalFeatures =
-            /\bhal\b/.test(lower) || /\bjwt\b|\boidc\b|\bldap\b|\bk8s\b/.test(lower)
+            /\bhal\b/.test(lower) || /\bjwt\b|\boidc\b|\bldap\b|\bk8s\b|\bkubernetes\b|\bcsi\b|\bvso\b|secrets operator/.test(lower)
 
         const alreadyCalledHalHelp = toolCalls.some(
             (call) => call.type === 'system' && call.tool === 'get_hal_help'
@@ -2616,11 +2997,13 @@ export class OpenAILLMService extends BaseLLMService {
         const asksVaultAuthTroubleshooting =
             /vault auth troubleshooting|auth troubleshooting|troubleshoot(ing)?\s+auth|auth\s+fail(ing|ure)?|login\s+fail(ing|ure)?/.test(lower)
         const asksVaultFeatureConfig = /configure|configuration|enable|setup|set up|deploy|how do i|how to|capabilities|outputs/.test(lower)
-            && /\bjwt\b|\boidc\b|\bldap\b|\bk8s\b|\bkubernetes\b/.test(lower)
+            && /\bjwt\b|\boidc\b|\bldap\b|\bk8s\b|\bkubernetes\b|\bcsi\b|\bvso\b|secrets operator/.test(lower)
+        const vaultFeatureIntent = this.detectVaultFeatureIntent(query)
         const asksReplicationHealth =
             /replication|ha health|cluster health|raft|autopilot/.test(lower)
         const asksLeaseActivity =
             /lease activity|lease status|active leases|list leases|leases/.test(lower)
+        const asksJwtActivity = /\bjwt\b/.test(lower) && /\bactivity\b|\baudit\b|\bevents?\b|\blogin\b|\btraffic\b|\brequests?\b/.test(lower)
 
         const alreadyHasHalStatus = toolCalls.some(
             (call) => call.type === 'system' && call.tool === 'get_hal_status'
@@ -2807,6 +3190,25 @@ export class OpenAILLMService extends BaseLLMService {
             toolResults.push(result)
         }
 
+        const alreadyHasVaultFeatureHelp = !!vaultFeatureIntent && toolCalls.some(
+            (call) =>
+                call.type === 'system' &&
+                call.tool === 'get_hal_help' &&
+                typeof call.arguments.topic === 'string' &&
+                call.arguments.topic.toLowerCase() === VAULT_FEATURE_SCENARIOS[vaultFeatureIntent].helpTopic
+        )
+
+        if (vaultFeatureIntent && !alreadyHasVaultFeatureHelp) {
+            const call: ToolCall = {
+                type: 'system',
+                tool: 'get_hal_help',
+                arguments: { topic: VAULT_FEATURE_SCENARIOS[vaultFeatureIntent].helpTopic },
+            }
+            toolCalls.push(call)
+            const result = await this.executionEngine.executeTool(call)
+            toolResults.push(result)
+        }
+
         const alreadyHasClusterHealth = toolCalls.some(
             (call) => call.type === 'vault' && call.tool === 'read_cluster_health'
         )
@@ -2843,6 +3245,77 @@ export class OpenAILLMService extends BaseLLMService {
                 type: 'vault',
                 tool: 'list_leases',
                 arguments: {},
+            }
+            toolCalls.push(call)
+            const result = await this.executionEngine.executeTool(call)
+            toolResults.push(result)
+        }
+
+        const alreadyHasJwtAggregate = toolCalls.some(
+            (call) =>
+                call.type === 'audit' &&
+                call.tool === 'audit.aggregate' &&
+                typeof call.arguments.mount_type === 'string' &&
+                call.arguments.mount_type.toLowerCase() === 'jwt'
+        )
+        if (asksJwtActivity && !alreadyHasJwtAggregate) {
+            const call: ToolCall = {
+                type: 'audit',
+                tool: 'audit.aggregate',
+                arguments: {
+                    by: 'vault_operation',
+                    mount_type: 'jwt',
+                },
+            }
+            toolCalls.push(call)
+            const result = await this.executionEngine.executeTool(call)
+            toolResults.push(result)
+        }
+
+        const alreadyHasJwtSearch = toolCalls.some(
+            (call) =>
+                call.type === 'audit' &&
+                call.tool === 'audit.search_events' &&
+                typeof call.arguments.mount_type === 'string' &&
+                call.arguments.mount_type.toLowerCase() === 'jwt'
+        )
+        if (asksJwtActivity && !alreadyHasJwtSearch) {
+            const now = new Date()
+            const start = new Date(now.getTime() - 15 * 60 * 1000)
+            const call: ToolCall = {
+                type: 'audit',
+                tool: 'audit.search_events',
+                arguments: {
+                    mount_type: 'jwt',
+                    start_rfc3339: start.toISOString(),
+                    end_rfc3339: now.toISOString(),
+                    limit: 50,
+                },
+            }
+            toolCalls.push(call)
+            const result = await this.executionEngine.executeTool(call)
+            toolResults.push(result)
+        }
+
+        const alreadyHasAuthClassSearch = toolCalls.some(
+            (call) =>
+                call.type === 'audit' &&
+                call.tool === 'audit.search_events' &&
+                typeof call.arguments.mount_class === 'string' &&
+                call.arguments.mount_class.toLowerCase() === 'auth'
+        )
+        if (asksJwtActivity && !alreadyHasAuthClassSearch) {
+            const now = new Date()
+            const start = new Date(now.getTime() - 15 * 60 * 1000)
+            const call: ToolCall = {
+                type: 'audit',
+                tool: 'audit.search_events',
+                arguments: {
+                    mount_class: 'auth',
+                    start_rfc3339: start.toISOString(),
+                    end_rfc3339: now.toISOString(),
+                    limit: 50,
+                },
             }
             toolCalls.push(call)
             const result = await this.executionEngine.executeTool(call)
@@ -2964,7 +3437,8 @@ export class OpenAILLMService extends BaseLLMService {
      * Convert OpenAI's tool call to our ToolCall format
      */
     private toolCallToToolCall(toolName: string, args: string | Record<string, unknown>): ToolCall {
-        const input = typeof args === 'string' ? JSON.parse(args) : args
+        const input = this.parseToolArguments(args)
+        const normalizedToolName = toolName.trim().toLowerCase()
 
         // Map LLM tool names to actual MCP server tool names
         if (toolName === 'search_audit_events') {
@@ -2998,8 +3472,8 @@ export class OpenAILLMService extends BaseLLMService {
                 arguments: input,
             }
         } else if (toolName === 'invoke_hal_tool') {
-            const input = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
-            const halTool = input.tool
+            const inputObj = (input && typeof input === 'object') ? (input as Record<string, unknown>) : {}
+            const halTool = inputObj.tool
 
             if (!halTool || typeof halTool !== 'string') {
                 throw new Error('invoke_hal_tool requires a string "tool" field')
@@ -3009,8 +3483,8 @@ export class OpenAILLMService extends BaseLLMService {
                 type: 'hal',
                 tool: halTool,
                 arguments:
-                    input.arguments && typeof input.arguments === 'object'
-                        ? (input.arguments as Record<string, unknown>)
+                    inputObj.arguments && typeof inputObj.arguments === 'object'
+                        ? (inputObj.arguments as Record<string, unknown>)
                         : {},
             }
         } else if (toolName === 'suggest_documentation') {
@@ -3048,7 +3522,83 @@ export class OpenAILLMService extends BaseLLMService {
                 arguments: input,
             }
         }
+        // Robust fallback: some models occasionally emit HAL CLI command strings
+        // as tool names (e.g., "hal status") instead of declared function names.
+        if (normalizedToolName.startsWith('hal ')) {
+            const tokens = normalizedToolName.split(/\s+/).filter(Boolean)
+
+            if (tokens.length >= 2 && tokens[1] === 'status') {
+                return {
+                    type: 'system',
+                    tool: 'get_hal_status',
+                    arguments: {},
+                }
+            }
+
+            if (tokens.length >= 3 && tokens[2] === 'status') {
+                const product = tokens[1]
+                if (/^(vault|terraform|boundary|consul|nomad|obs|observability|tfe)$/.test(product)) {
+                    return {
+                        type: 'system',
+                        tool: 'get_hal_status',
+                        arguments: { product: product === 'observability' ? 'obs' : product },
+                    }
+                }
+            }
+
+            if (tokens.includes('--help') || tokens.includes('-h')) {
+                const topic = tokens.slice(1).filter((part) => part !== '--help' && part !== '-h').join(' ')
+                return {
+                    type: 'system',
+                    tool: 'get_hal_help',
+                    arguments: topic.length > 0 ? { topic } : {},
+                }
+            }
+        }
+
         throw new Error(`Unknown tool: ${toolName}`)
+    }
+
+    private parseToolArguments(args: string | Record<string, unknown>): Record<string, unknown> {
+        if (args && typeof args === 'object') {
+            return args
+        }
+
+        if (typeof args !== 'string') {
+            return {}
+        }
+
+        const cleaned = args
+            .trim()
+            .replace(/^```(?:json)?\s*/i, '')
+            .replace(/\s*```$/i, '')
+            .trim()
+
+        if (!cleaned) {
+            return {}
+        }
+
+        try {
+            const parsed = JSON.parse(cleaned)
+            return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {}
+        } catch (_error) {
+            // Some model outputs append trailing text after valid JSON.
+            const braceStart = cleaned.indexOf('{')
+            const braceEnd = cleaned.lastIndexOf('}')
+            if (braceStart >= 0 && braceEnd > braceStart) {
+                const candidate = cleaned.slice(braceStart, braceEnd + 1)
+                try {
+                    const parsed = JSON.parse(candidate)
+                    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {}
+                } catch (_nestedError) {
+                    console.warn('[OpenAI LLM] Failed to parse tool arguments, using empty object')
+                    return {}
+                }
+            }
+
+            console.warn('[OpenAI LLM] Failed to parse tool arguments, using empty object')
+            return {}
+        }
     }
 
     /**

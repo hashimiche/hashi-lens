@@ -318,6 +318,25 @@ export class ExecutionEngine {
             // Send the tool call to the Vault MCP server
             const result = await this.vaultClient.callTool(tool, args as Record<string, unknown>)
 
+            // Compatibility fallback: some Vault MCP builds do not expose list_auth_methods.
+            // Derive auth methods from list_mounts to avoid hard failures in mixed environments.
+            if (
+                tool === 'list_auth_methods' &&
+                !result.success &&
+                typeof result.error === 'string' &&
+                /tool\s+.*not found|tool not found/i.test(result.error)
+            ) {
+                const mountsFallback = await this.vaultClient.callTool('list_mounts', args as Record<string, unknown>)
+                if (mountsFallback.success) {
+                    return {
+                        type: 'vault',
+                        tool,
+                        success: true,
+                        result: this.deriveAuthMethodsFromMounts(mountsFallback.result),
+                    }
+                }
+            }
+
             console.log(
                 `[Vault] Result ${tool} success=${result.success} duration_ms=${Date.now() - startTime}`
             )
@@ -337,6 +356,51 @@ export class ExecutionEngine {
                 error: error instanceof Error ? error.message : 'Unknown error',
             }
         }
+    }
+
+    private deriveAuthMethodsFromMounts(mountsPayload: unknown): Array<{ path: string; type: string; description?: string }> {
+        let parsed: unknown = mountsPayload
+
+        if (typeof mountsPayload === 'string') {
+            try {
+                parsed = JSON.parse(mountsPayload)
+            } catch (_error) {
+                return []
+            }
+        }
+
+        if (!parsed || typeof parsed !== 'object') {
+            return []
+        }
+
+        const out: Array<{ path: string; type: string; description?: string }> = []
+
+        if (Array.isArray(parsed)) {
+            for (const item of parsed) {
+                if (!item || typeof item !== 'object') continue
+                const value = item as { path?: unknown; name?: unknown; type?: unknown; description?: unknown }
+                const path = typeof value.path === 'string' ? value.path : (typeof value.name === 'string' ? value.name : null)
+                const type = typeof value.type === 'string' ? value.type : null
+                const description = typeof value.description === 'string' ? value.description : undefined
+                if (!path || !type) continue
+                if (path.startsWith('auth/') || type === 'token') {
+                    out.push({ path, type, description })
+                }
+            }
+            return out
+        }
+
+        for (const [path, details] of Object.entries(parsed as Record<string, unknown>)) {
+            if (!details || typeof details !== 'object') continue
+            const value = details as { type?: unknown; description?: unknown }
+            if (typeof value.type !== 'string') continue
+            if (path.startsWith('auth/') || value.type === 'token') {
+                const description = typeof value.description === 'string' ? value.description : undefined
+                out.push({ path, type: value.type, description })
+            }
+        }
+
+        return out
     }
 
     /**

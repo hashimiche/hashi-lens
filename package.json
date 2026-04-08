@@ -7,7 +7,7 @@
     "scripts": {
         "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
         "dev:server": "tsx watch src/server/index.ts",
-        "dev:client": "vite",
+        "dev:client": "sh -c 'echo \"Waiting for API on http://127.0.0.1:${API_PORT:-9001}...\"; until curl -fsS \"http://127.0.0.1:${API_PORT:-9001}/auth/status\" >/dev/null 2>&1; do sleep 0.2; done; vite'",
         "build": "npm run build:server && npm run build:client",
         "build:server": "tsc -p tsconfig.server.json",
         "build:client": "vite build",

@@ -66,7 +66,7 @@ cp .env.example .env
 
 - `LLM_PROVIDER`: `ollama`
 - `OLLAMA_BASE_URL`: Ollama OpenAI-compatible endpoint (default `http://ollama.localhost:11434/v1`)
-- `OLLAMA_MODEL`: local model name served by Ollama (default `qwen2.5:7b`)
+- `OLLAMA_MODEL`: local model name served by Ollama (default `gemma4:latest`)
 - `OLLAMA_API_KEY`: optional placeholder value for client auth (default `ollama`)
 - `VAULT_AUDIT_MCP_COMMAND`: command/path for audit MCP server (default `./vault-audit-mcp`)
 - `VAULT_MCP_COMMAND`: command/path for Vault MCP server (default `./vault-mcp-server`)
@@ -95,7 +95,7 @@ If you prefer not to use the UI "connect" flow in local sandbox mode, set `VAULT
 2. Pull a model that supports your workflow, for example:
 
 ```bash
-ollama pull qwen2.5:7b
+ollama pull gemma4:latest
 ```
 
 3. Configure `.env`:
@@ -103,7 +103,7 @@ ollama pull qwen2.5:7b
 ```bash
 LLM_PROVIDER=ollama
 OLLAMA_BASE_URL=http://127.0.0.1:11434/v1
-OLLAMA_MODEL=qwen2.5:7b
+OLLAMA_MODEL=gemma4:latest
 
 # optional but recommended for visual troubleshooting
 LOKI_URL=http://loki.localhost:3100
@@ -113,7 +113,7 @@ If you see `model not found` errors in chat:
 
 ```bash
 curl http://127.0.0.1:11434/api/tags
-ollama pull qwen2.5:7b
+ollama pull gemma4:latest
 ```
 
 Then restart Hashi Lens.

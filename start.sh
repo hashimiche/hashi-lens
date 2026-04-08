@@ -101,6 +101,12 @@ if ! curl -fsS "$OLLAMA_PROBE_URL" >/dev/null 2>&1; then
     exit 1
 fi
 
+if ! curl -fsS "$OLLAMA_PROBE_URL" | grep -q "\"name\":\"${OLLAMA_MODEL}\""; then
+    echo "❌ OLLAMA_MODEL is not installed locally: ${OLLAMA_MODEL}"
+    echo "   Install it with: ollama pull ${OLLAMA_MODEL}"
+    exit 1
+fi
+
 echo "✅ Ollama configuration detected"
 echo ""
 
